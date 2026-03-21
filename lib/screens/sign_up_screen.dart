@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:larga/services/auth_service.dart';
-import 'package:larga/screens/home_screen.dart';
+import 'package:larga/screens/main_shell.dart';
 
 class SignUpScreen extends StatefulWidget {
   const SignUpScreen({super.key});
@@ -52,7 +52,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
         );
 
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const HomeScreen()),
+          MaterialPageRoute(builder: (_) => const MainShell()),
         );
       }
     } catch (e) {
@@ -75,25 +75,29 @@ class _SignUpScreenState extends State<SignUpScreen> {
     try {
       setState(() => _isLoading = true);
       
-      final success = await _authService.signInWithGoogle();
+      final response = await _authService.signInWithGoogle();
       
-      if (!success && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Google sign up was cancelled or failed'),
-            backgroundColor: Colors.red,
-          ),
-        );
+      // On mobile, response will contain the session
+      // On web, it returns null and uses OAuth redirect
+      if (response?.session != null) {
+        debugPrint('Sign up successful!');
+      }
+      
+      if (mounted) {
         setState(() => _isLoading = false);
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Google sign up failed: ${e.toString()}'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        final errorMsg = e.toString();
+        // Don't show error for user cancellation
+        if (!errorMsg.contains('cancelled') && !errorMsg.contains('canceled')) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Sign up failed: ${e.toString()}'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
         setState(() => _isLoading = false);
       }
     }
@@ -116,12 +120,11 @@ class _SignUpScreenState extends State<SignUpScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Icon(
-                    Icons.person_add_outlined,
-                    size: 80,
-                    color: Theme.of(context).primaryColor,
+                  Image.asset(
+                    'assets/images/logo_icon.png',
+                    height: 80,
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 24),
                   Text(
                     'Create Account',
                     style: Theme.of(context).textTheme.headlineMedium?.copyWith(
