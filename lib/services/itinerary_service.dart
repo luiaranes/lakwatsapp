@@ -1,9 +1,11 @@
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:larga/models/itinerary_item.dart';
+import 'package:larga/services/activity_log_service.dart';
 
 class ItineraryService {
   final SupabaseClient _supabase = Supabase.instance.client;
+  final ActivityLogService _activityLogService = ActivityLogService();
 
   String? get _currentUserId => _supabase.auth.currentUser?.id;
 
@@ -129,7 +131,17 @@ class ItineraryService {
           .single();
 
       debugPrint('ItineraryService: Item created');
-      return ItineraryItem.fromJson(response);
+      final item = ItineraryItem.fromJson(response);
+      
+      // Log the activity
+      await _activityLogService.logItineraryItemCreated(
+        item.id,
+        tripId,
+        title.trim(),
+        dayNumber,
+      );
+      
+      return item;
     } catch (e) {
       debugPrint('ItineraryService: Error creating item: $e');
       rethrow;
@@ -166,69 +178,115 @@ class ItineraryService {
     }
 
     try {
-      final updates = <String, dynamic>{};
+      // Fetch original item for change tracking
+      final original = await getItemById(itemId);
+      if (original == null) throw Exception('Item not found');
 
-      if (dayNumber != null) updates['day_number'] = dayNumber;
-      if (sortOrder != null) updates['sort_order'] = sortOrder;
-      if (title != null) updates['title'] = title.trim();
+      final updates = <String, dynamic>{};
+      final changes = <String, Map<String, dynamic>>{};
+
+      if (dayNumber != null) {
+        updates['day_number'] = dayNumber;
+        changes['day_number'] = {'from': original.dayNumber, 'to': dayNumber};
+      }
+      if (sortOrder != null) {
+        updates['sort_order'] = sortOrder;
+        changes['sort_order'] = {'from': original.sortOrder, 'to': sortOrder};
+      }
+      if (title != null) {
+        updates['title'] = title.trim();
+        changes['title'] = {'from': original.title, 'to': title.trim()};
+      }
       
       if (clearDescription) {
         updates['description'] = null;
+        changes['description'] = {'from': original.description, 'to': null};
       } else if (description != null) {
-        updates['description'] = description.trim().isNotEmpty ? description.trim() : null;
+        final newDesc = description.trim().isNotEmpty ? description.trim() : null;
+        updates['description'] = newDesc;
+        changes['description'] = {'from': original.description, 'to': newDesc};
       }
 
       if (clearStartTime) {
         updates['start_time'] = null;
+        changes['start_time'] = {'from': original.startTime, 'to': null};
       } else if (startTime != null) {
         updates['start_time'] = startTime;
+        changes['start_time'] = {'from': original.startTime, 'to': startTime};
       }
 
       if (clearEndTime) {
         updates['end_time'] = null;
+        changes['end_time'] = {'from': original.endTime, 'to': null};
       } else if (endTime != null) {
         updates['end_time'] = endTime;
+        changes['end_time'] = {'from': original.endTime, 'to': endTime};
       }
 
       if (clearLocation) {
         updates['location'] = null;
+        changes['location'] = {'from': original.location, 'to': null};
       } else if (location != null) {
-        updates['location'] = location.trim().isNotEmpty ? location.trim() : null;
+        final newLoc = location.trim().isNotEmpty ? location.trim() : null;
+        updates['location'] = newLoc;
+        changes['location'] = {'from': original.location, 'to': newLoc};
       }
 
       if (clearCoordinates) {
         updates['latitude'] = null;
         updates['longitude'] = null;
+        changes['coordinates'] = {
+          'from': {'lat': original.latitude, 'lng': original.longitude},
+          'to': null,
+        };
       } else {
-        if (latitude != null) updates['latitude'] = latitude;
-        if (longitude != null) updates['longitude'] = longitude;
+        if (latitude != null) {
+          updates['latitude'] = latitude;
+          changes['latitude'] = {'from': original.latitude, 'to': latitude};
+        }
+        if (longitude != null) {
+          updates['longitude'] = longitude;
+          changes['longitude'] = {'from': original.longitude, 'to': longitude};
+        }
       }
 
-      if (category != null) updates['category'] = category.name;
+      if (category != null) {
+        updates['category'] = category.name;
+        changes['category'] = {'from': original.category.name, 'to': category.name};
+      }
 
       if (clearEstimatedCost) {
         updates['estimated_cost'] = null;
         updates['currency'] = null;
+        changes['estimated_cost'] = {'from': original.estimatedCost, 'to': null};
+        // Also log currency change if it was previously set
+        if (original.currency != null) {
+          changes['currency'] = {'from': original.currency, 'to': null};
+        }
       } else if (estimatedCost != null) {
         updates['estimated_cost'] = estimatedCost;
+        changes['estimated_cost'] = {'from': original.estimatedCost, 'to': estimatedCost};
       }
 
       if (clearCurrency) {
         updates['currency'] = null;
+        changes['currency'] = {'from': original.currency, 'to': null};
       } else if (currency != null) {
         updates['currency'] = currency;
+        changes['currency'] = {'from': original.currency, 'to': currency};
       }
 
       if (clearNotes) {
         updates['notes'] = null;
+        changes['notes'] = {'from': original.notes, 'to': null};
       } else if (notes != null) {
-        updates['notes'] = notes.trim().isNotEmpty ? notes.trim() : null;
+        final newNotes = notes.trim().isNotEmpty ? notes.trim() : null;
+        updates['notes'] = newNotes;
+        changes['notes'] = {'from': original.notes, 'to': newNotes};
       }
 
       if (updates.isEmpty) {
-        final current = await getItemById(itemId);
-        if (current == null) throw Exception('Item not found');
-        return current;
+        return original;
       }
 
       final response = await _supabase
@@ -239,7 +297,18 @@ class ItineraryService {
           .single();
 
       debugPrint('ItineraryService: Item updated: $itemId');
-      return ItineraryItem.fromJson(response);
+      final item = ItineraryItem.fromJson(response);
+      
+      // Log the activity with detailed changes
+      await _activityLogService.logItineraryItemUpdated(
+        item.id,
+        item.tripId,
+        item.title,
+        changedFields: updates.keys.toList(),
+        changes: changes,
+      );
+      
+      return item;
     } catch (e) {
       debugPrint('ItineraryService: Error updating item: $e');
       rethrow;
@@ -247,14 +316,29 @@ class ItineraryService {
   }
 
   /// Delete an itinerary item
-  Future<void> deleteItem(String itemId) async {
+  Future<void> deleteItem(String itemId, {String? tripId, String? title}) async {
     if (_currentUserId == null) {
       throw Exception('User not authenticated');
     }
 
     try {
+      // Get item details for logging if not provided
+      String? logTripId = tripId;
+      String? logTitle = title;
+      
+      if (logTripId == null || logTitle == null) {
+        final item = await getItemById(itemId);
+        logTripId ??= item?.tripId;
+        logTitle ??= item?.title;
+      }
+      
       await _supabase.from('itinerary_items').delete().eq('id', itemId);
       debugPrint('ItineraryService: Item deleted: $itemId');
+      
+      // Log the activity
+      if (logTripId != null && logTitle != null) {
+        await _activityLogService.logItineraryItemDeleted(itemId, logTripId, logTitle);
+      }
     } catch (e) {
       debugPrint('ItineraryService: Error deleting item: $e');
       rethrow;
@@ -275,6 +359,9 @@ class ItineraryService {
             .eq('id', orderedIds[i]);
       }
       debugPrint('ItineraryService: Items reordered for day $dayNumber');
+      
+      // Log the activity
+      await _activityLogService.logItineraryReordered(tripId, dayNumber);
     } catch (e) {
       debugPrint('ItineraryService: Error reordering items: $e');
       rethrow;

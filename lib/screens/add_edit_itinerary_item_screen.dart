@@ -132,30 +132,49 @@ class _AddEditItineraryItemScreenState extends State<AddEditItineraryItemScreen>
       ItineraryItem result;
 
       if (_isEditing) {
+        final original = widget.existingItem!;
+        final newTitle = _titleController.text.trim();
+        final newDescription = _descriptionController.text.trim();
+        final newLocation = _locationController.text.trim();
+        final newNotes = _notesController.text.trim();
+        final newStartTime = _formatTimeForDb(_startTime);
+        final newEndTime = _formatTimeForDb(_endTime);
+
+        // Only pass values that have actually changed
         result = await _itineraryService.updateItem(
-          itemId: widget.existingItem!.id,
-          dayNumber: _selectedDayNumber,
-          title: _titleController.text.trim(),
-          description: _descriptionController.text.trim().isNotEmpty
-              ? _descriptionController.text.trim()
+          itemId: original.id,
+          // Day number: only if changed
+          dayNumber: _selectedDayNumber != original.dayNumber ? _selectedDayNumber : null,
+          // Title: only if changed
+          title: newTitle != original.title ? newTitle : null,
+          // Description: only if changed
+          description: newDescription != (original.description ?? '')
+              ? (newDescription.isEmpty ? null : newDescription)
               : null,
-          startTime: _formatTimeForDb(_startTime),
-          endTime: _formatTimeForDb(_endTime),
-          location: _locationController.text.trim().isNotEmpty
-              ? _locationController.text.trim()
+          clearDescription: newDescription.isEmpty && original.description != null,
+          // Start time: only if changed
+          startTime: newStartTime != original.startTime ? newStartTime : null,
+          clearStartTime: _startTime == null && original.startTime != null,
+          // End time: only if changed
+          endTime: newEndTime != original.endTime ? newEndTime : null,
+          clearEndTime: _endTime == null && original.endTime != null,
+          // Location: only if changed
+          location: newLocation != (original.location ?? '')
+              ? (newLocation.isEmpty ? null : newLocation)
               : null,
-          category: _selectedCategory,
-          estimatedCost: cost,
-          currency: cost != null ? _selectedCurrency : null,
-          notes: _notesController.text.trim().isNotEmpty
-              ? _notesController.text.trim()
+          clearLocation: newLocation.isEmpty && original.location != null,
+          // Category: only if changed
+          category: _selectedCategory != original.category ? _selectedCategory : null,
+          // Estimated cost: only if changed
+          estimatedCost: cost != original.estimatedCost ? cost : null,
+          clearEstimatedCost: cost == null && original.estimatedCost != null,
+          // Currency: only if changed (and cost is set)
+          currency: (cost != null && _selectedCurrency != original.currency) ? _selectedCurrency : null,
+          // Notes: only if changed
+          notes: newNotes != (original.notes ?? '')
+              ? (newNotes.isEmpty ? null : newNotes)
               : null,
-          clearDescription: _descriptionController.text.trim().isEmpty,
-          clearStartTime: _startTime == null,
-          clearEndTime: _endTime == null,
-          clearLocation: _locationController.text.trim().isEmpty,
-          clearEstimatedCost: cost == null,
-          clearNotes: _notesController.text.trim().isEmpty,
+          clearNotes: newNotes.isEmpty && original.notes != null,
         );
       } else {
         result = await _itineraryService.createItem(

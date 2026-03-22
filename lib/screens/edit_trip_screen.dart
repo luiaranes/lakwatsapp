@@ -117,27 +117,41 @@ class _EditTripScreenState extends State<EditTripScreen> {
     setState(() => _isLoading = true);
 
     try {
+      final original = widget.trip;
+      
+      // Parse current budget
       double? budget;
       if (_budgetController.text.isNotEmpty) {
         budget = double.tryParse(_budgetController.text.replaceAll(',', ''));
       }
 
-      final description = _descriptionController.text.trim();
-      final originalDescription = widget.trip.description ?? '';
+      final newTitle = _titleController.text.trim();
+      final newDescription = _descriptionController.text.trim();
+      final originalDescription = original.description ?? '';
 
+      // Only pass values that have actually changed
       final updatedTrip = await _tripService.updateTrip(
-        tripId: widget.trip.id,
-        title: _titleController.text.trim(),
-        description: description.isEmpty ? null : description,
-        clearDescription: description.isEmpty && originalDescription.isNotEmpty,
-        startDate: _startDate,
-        endDate: _endDate,
-        clearStartDate: _startDate == null && widget.trip.startDate != null,
-        clearEndDate: _endDate == null && widget.trip.endDate != null,
-        budget: budget,
-        clearBudget: budget == null && widget.trip.budget != null,
-        currency: _currency,
-        isPublic: _isPublic,
+        tripId: original.id,
+        // Title: only if changed
+        title: newTitle != original.title ? newTitle : null,
+        // Description: only if changed
+        description: newDescription != originalDescription 
+            ? (newDescription.isEmpty ? null : newDescription) 
+            : null,
+        clearDescription: newDescription.isEmpty && originalDescription.isNotEmpty,
+        // Start date: only if changed
+        startDate: _startDate != original.startDate ? _startDate : null,
+        clearStartDate: _startDate == null && original.startDate != null,
+        // End date: only if changed
+        endDate: _endDate != original.endDate ? _endDate : null,
+        clearEndDate: _endDate == null && original.endDate != null,
+        // Budget: only if changed
+        budget: budget != original.budget ? budget : null,
+        clearBudget: budget == null && original.budget != null,
+        // Currency: only if changed
+        currency: _currency != original.currency ? _currency : null,
+        // Public: only if changed
+        isPublic: _isPublic != original.isPublic ? _isPublic : null,
       );
 
       if (!mounted) return;

@@ -13,6 +13,7 @@ import 'package:larga/screens/edit_trip_screen.dart';
 import 'package:larga/screens/trip_members_screen.dart';
 import 'package:larga/screens/invite_member_sheet.dart';
 import 'package:larga/screens/itinerary_screen.dart';
+import 'package:larga/widgets/activity_log_list.dart';
 
 class TripDetailScreen extends StatefulWidget {
   final String tripId;
@@ -38,6 +39,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   bool _isLoading = true;
   bool _canEdit = false;
   bool _isOwner = false;
+  bool _hasChanges = false;
   int _memberCount = 1;
   int _itineraryCount = 0;
   List<ItineraryItem> _recentItineraryItems = [];
@@ -121,7 +123,10 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
       );
 
       if (!mounted) return;
-      setState(() => _trip = updatedTrip);
+      setState(() {
+        _trip = updatedTrip;
+        _hasChanges = true;
+      });
       SnackBarUtils.showSuccess(context, 'Cover image updated!');
     } catch (e) {
       if (!mounted) return;
@@ -135,7 +140,10 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
     try {
       final updatedTrip = await _tripService.updateTripStatus(_trip!.id, status);
       if (!mounted) return;
-      setState(() => _trip = updatedTrip);
+      setState(() {
+        _trip = updatedTrip;
+        _hasChanges = true;
+      });
       SnackBarUtils.showSuccess(context, 'Status updated!');
     } catch (e) {
       if (!mounted) return;
@@ -193,7 +201,10 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
     );
 
     if (updatedTrip != null && mounted) {
-      setState(() => _trip = updatedTrip);
+      setState(() {
+        _trip = updatedTrip;
+        _hasChanges = true;
+      });
     }
   }
 
@@ -270,7 +281,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
                 ),
                 child: const Icon(Icons.arrow_back, color: Colors.white),
               ),
-              onPressed: () => Navigator.of(context).pop(),
+              onPressed: () => Navigator.of(context).pop(_hasChanges),
             ),
             actions: [
               if (_canEdit)
@@ -338,6 +349,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
                   // Cover Image or Gradient
                   if (_trip!.coverImageUrl != null)
                     Image.network(
+                      key: ValueKey(_trip!.coverImageUrl),
                       _trip!.coverImageUrl!,
                       fit: BoxFit.cover,
                       errorBuilder: (_, __, ___) => _buildGradientCover(theme),
@@ -504,6 +516,9 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
 
                 _buildSectionHeader(context, 'Members', Icons.group_outlined),
                 _buildMembersPreview(),
+
+                _buildSectionHeader(context, 'Activity', Icons.history_outlined),
+                _buildActivitySection(),
 
                 const SizedBox(height: 100),
               ],
@@ -910,6 +925,40 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
       return '${names.join(', ')} +${_memberCount - 2} more';
     }
     return names.join(', ');
+  }
+
+  void _openActivityLog() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => ActivityLogScreen(
+          tripId: widget.tripId,
+          tripTitle: _trip?.title,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildActivitySection() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.grey[50],
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.grey[200]!),
+        ),
+        child: Column(
+          children: [
+            ActivityLogList(
+              tripId: widget.tripId,
+              maxItems: 5,
+              showHeader: false,
+              onViewAll: _openActivityLog,
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _showStatusPicker() {
