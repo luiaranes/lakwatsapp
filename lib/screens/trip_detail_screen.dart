@@ -3,13 +3,16 @@ import 'package:intl/intl.dart';
 import 'package:larga/models/trip.dart';
 import 'package:larga/models/trip_member.dart';
 import 'package:larga/models/user_profile.dart';
+import 'package:larga/models/itinerary_item.dart';
 import 'package:larga/services/trip_service.dart';
 import 'package:larga/services/storage_service.dart';
 import 'package:larga/services/profile_service.dart';
+import 'package:larga/services/itinerary_service.dart';
 import 'package:larga/utils/snackbar_utils.dart';
 import 'package:larga/screens/edit_trip_screen.dart';
 import 'package:larga/screens/trip_members_screen.dart';
 import 'package:larga/screens/invite_member_sheet.dart';
+import 'package:larga/screens/itinerary_screen.dart';
 
 class TripDetailScreen extends StatefulWidget {
   final String tripId;
@@ -29,12 +32,15 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   final _tripService = TripService();
   final _storageService = StorageService();
   final _profileService = ProfileService();
+  final _itineraryService = ItineraryService();
 
   Trip? _trip;
   bool _isLoading = true;
   bool _canEdit = false;
   bool _isOwner = false;
   int _memberCount = 1;
+  int _itineraryCount = 0;
+  List<ItineraryItem> _recentItineraryItems = [];
   List<_MemberPreview> _memberPreviews = [];
 
   @override
@@ -51,12 +57,13 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
         _tripService.canEdit(widget.tripId),
         _tripService.isOwner(widget.tripId),
         _tripService.getTripMembers(widget.tripId),
+        _itineraryService.getItineraryItems(widget.tripId),
       ]);
 
       if (!mounted) return;
 
       final members = results[3] as List<TripMember>;
-      _memberCount = members.length;
+      final itineraryItems = results[4] as List<ItineraryItem>;
 
       // Load member profiles for preview (up to 4)
       final previewMembers = members.take(4).toList();
@@ -64,7 +71,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
       final profiles = await _profileService.getProfilesByAuthIds(authIds);
       final profileMap = {for (var p in profiles) p.authId: p};
 
-      _memberPreviews = previewMembers.map((m) {
+      var memberPreviews = previewMembers.map((m) {
         return _MemberPreview(
           member: m,
           profile: profileMap[m.userId],
@@ -72,7 +79,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
       }).toList();
 
       // Sort: owner first
-      _memberPreviews.sort((a, b) {
+      memberPreviews.sort((a, b) {
         if (a.member.isOwner) return -1;
         if (b.member.isOwner) return 1;
         return 0;
@@ -82,6 +89,10 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
         _trip = results[0] as Trip?;
         _canEdit = results[1] as bool;
         _isOwner = results[2] as bool;
+        _memberCount = members.length;
+        _itineraryCount = itineraryItems.length;
+        _recentItineraryItems = itineraryItems.take(3).toList();
+        _memberPreviews = memberPreviews;
         _isLoading = false;
       });
     } catch (e) {
@@ -481,12 +492,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
 
                 // Sections
                 _buildSectionHeader(context, 'Itinerary', Icons.map_outlined),
-                _buildPlaceholderCard(
-                  'No itinerary yet',
-                  'Add activities and places to visit',
-                  Icons.add_location_alt_outlined,
-                  onTap: () => SnackBarUtils.showInfo(context, 'Itinerary builder coming soon!'),
-                ),
+                _buildItinerarySection(),
 
                 _buildSectionHeader(context, 'Expenses', Icons.receipt_outlined),
                 _buildPlaceholderCard(
@@ -632,6 +638,130 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
                 ),
               ),
               Icon(Icons.chevron_right, color: Colors.grey[400]),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openItinerary() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => ItineraryScreen(
+          tripId: widget.tripId,
+          trip: _trip,
+        ),
+      ),
+    );
+    _loadTrip();
+  }
+
+  Widget _buildItinerarySection() {
+    if (_itineraryCount == 0) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: InkWell(
+          onTap: _openItinerary,
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.grey[50],
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey[200]!),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(Icons.add_location_alt_outlined, color: Colors.blue[600]),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'No itinerary yet',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 15,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Add activities and places to visit',
+                        style: TextStyle(
+                          color: Colors.grey[600],
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right, color: Colors.grey[400]),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: InkWell(
+        onTap: _openItinerary,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.grey[50],
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey[200]!),
+          ),
+          child: Column(
+            children: [
+              // Preview items
+              ...List.generate(
+                _recentItineraryItems.length,
+                (index) {
+                  final item = _recentItineraryItems[index];
+                  return Padding(
+                    padding: EdgeInsets.only(
+                      bottom: index < _recentItineraryItems.length - 1 ? 12 : 0,
+                    ),
+                    child: _ItineraryItemPreview(item: item),
+                  );
+                },
+              ),
+              if (_itineraryCount > 3) ...[
+                const SizedBox(height: 12),
+                const Divider(height: 1),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      'View all $_itineraryCount activities',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Icon(
+                      Icons.arrow_forward,
+                      size: 16,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ],
+                ),
+              ],
             ],
           ),
         ),
@@ -986,5 +1116,100 @@ class _MemberAvatar extends StatelessWidget {
       return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
     }
     return parts[0][0].toUpperCase();
+  }
+}
+
+class _ItineraryItemPreview extends StatelessWidget {
+  final ItineraryItem item;
+
+  const _ItineraryItemPreview({required this.item});
+
+  Color _getCategoryColor() {
+    return switch (item.category) {
+      ItineraryCategory.transport => Colors.blue,
+      ItineraryCategory.accommodation => Colors.purple,
+      ItineraryCategory.food => Colors.orange,
+      ItineraryCategory.activity => Colors.green,
+      ItineraryCategory.sightseeing => Colors.pink,
+      ItineraryCategory.shopping => Colors.teal,
+      ItineraryCategory.rest => Colors.indigo,
+      ItineraryCategory.other => Colors.grey,
+    };
+  }
+
+  String _formatTime(String? time) {
+    if (time == null || time.isEmpty) return '';
+    final parts = time.split(':');
+    if (parts.length < 2) return time;
+    final hour = int.tryParse(parts[0]) ?? 0;
+    final minute = int.tryParse(parts[1]) ?? 0;
+    final period = hour >= 12 ? 'PM' : 'AM';
+    final displayHour = hour == 0 ? 12 : (hour > 12 ? hour - 12 : hour);
+    return '${displayHour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')} $period';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _getCategoryColor();
+
+    return Row(
+      children: [
+        Container(
+          width: 4,
+          height: 40,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Text(
+          item.category.icon,
+          style: const TextStyle(fontSize: 20),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                item.title,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              Wrap(
+                spacing: 0,
+                children: [
+                  Text(
+                    'Day ${item.dayNumber}',
+                    style: TextStyle(
+                      color: Colors.grey[600],
+                      fontSize: 12,
+                    ),
+                  ),
+                  if (item.startTime != null) ...[
+                    Text(
+                      ' • ',
+                      style: TextStyle(color: Colors.grey[400]),
+                    ),
+                    Text(
+                      _formatTime(item.startTime),
+                      style: TextStyle(
+                        color: Colors.grey[600],
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 }
