@@ -414,13 +414,6 @@ class _TripCard extends StatelessWidget {
       child: Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-              color: _tripColor.withValues(alpha: 0.3),
-              blurRadius: 20,
-              offset: const Offset(0, 8),
-            ),
-          ],
         ),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(20),
@@ -428,6 +421,7 @@ class _TripCard extends StatelessWidget {
             children: [
               // Background
               Container(
+                key: ValueKey(trip.coverImageUrl ?? 'no-cover'),
                 height: 180,
                 decoration: BoxDecoration(
                   gradient: trip.coverImageUrl == null

@@ -2,9 +2,11 @@ import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:larga/models/trip.dart';
 import 'package:larga/models/trip_member.dart';
+import 'package:larga/services/activity_log_service.dart';
 
 class TripService {
   final SupabaseClient _supabase = Supabase.instance.client;
+  final ActivityLogService _activityLogService = ActivityLogService();
 
   String? get _currentUserId => _supabase.auth.currentUser?.id;
 
@@ -131,6 +133,10 @@ class TripService {
       });
 
       debugPrint('TripService: Trip created: ${trip.id}');
+      
+      // Log the activity
+      await _activityLogService.logTripCreated(trip.id, title);
+      
       return trip;
     } catch (e) {
       debugPrint('TripService: Error creating trip: $e');
@@ -162,58 +168,78 @@ class TripService {
     }
 
     try {
+      // Fetch original trip for change tracking
+      final original = await getTripById(tripId);
+      if (original == null) throw Exception('Trip not found');
+
       final updates = <String, dynamic>{};
+      final changes = <String, Map<String, dynamic>>{};
 
       if (title != null && title.trim().isNotEmpty) {
         updates['title'] = title.trim();
+        changes['title'] = {'from': original.title, 'to': title.trim()};
       }
 
       if (clearDescription) {
         updates['description'] = null;
+        changes['description'] = {'from': original.description, 'to': null};
       } else if (description != null) {
-        updates['description'] = description.trim().isNotEmpty ? description.trim() : null;
+        final newDesc = description.trim().isNotEmpty ? description.trim() : null;
+        updates['description'] = newDesc;
+        changes['description'] = {'from': original.description, 'to': newDesc};
       }
 
       if (clearStartDate) {
         updates['start_date'] = null;
+        changes['start_date'] = {'from': original.startDate?.toIso8601String().split('T').first, 'to': null};
       } else if (startDate != null) {
-        updates['start_date'] = startDate.toIso8601String().split('T').first;
+        final newDate = startDate.toIso8601String().split('T').first;
+        updates['start_date'] = newDate;
+        changes['start_date'] = {'from': original.startDate?.toIso8601String().split('T').first, 'to': newDate};
       }
 
       if (clearEndDate) {
         updates['end_date'] = null;
+        changes['end_date'] = {'from': original.endDate?.toIso8601String().split('T').first, 'to': null};
       } else if (endDate != null) {
-        updates['end_date'] = endDate.toIso8601String().split('T').first;
+        final newDate = endDate.toIso8601String().split('T').first;
+        updates['end_date'] = newDate;
+        changes['end_date'] = {'from': original.endDate?.toIso8601String().split('T').first, 'to': newDate};
       }
 
       if (status != null) {
         updates['status'] = status.name;
+        changes['status'] = {'from': original.status.name, 'to': status.name};
       }
 
       if (clearCoverImage) {
         updates['cover_image_url'] = null;
+        changes['cover_image_url'] = {'from': original.coverImageUrl, 'to': null};
       } else if (coverImageUrl != null) {
         updates['cover_image_url'] = coverImageUrl;
+        changes['cover_image_url'] = {'from': original.coverImageUrl, 'to': coverImageUrl};
       }
 
       if (clearBudget) {
         updates['budget'] = null;
+        changes['budget'] = {'from': original.budget, 'to': null};
       } else if (budget != null) {
         updates['budget'] = budget;
+        changes['budget'] = {'from': original.budget, 'to': budget};
       }
 
       if (currency != null) {
         updates['currency'] = currency;
+        changes['currency'] = {'from': original.currency, 'to': currency};
       }
 
       if (isPublic != null) {
         updates['is_public'] = isPublic;
+        changes['is_public'] = {'from': original.isPublic, 'to': isPublic};
       }
 
       if (updates.isEmpty) {
-        final current = await getTripById(tripId);
-        if (current == null) throw Exception('Trip not found');
-        return current;
+        return original;
       }
 
       final response = await _supabase
@@ -224,7 +250,17 @@ class TripService {
           .single();
 
       debugPrint('TripService: Trip updated: $tripId');
-      return Trip.fromJson(response);
+      final trip = Trip.fromJson(response);
+      
+      // Log the activity with detailed changes
+      await _activityLogService.logTripUpdated(
+        trip.id,
+        trip.title,
+        changedFields: updates.keys.toList(),
+        changes: changes,
+      );
+      
+      return trip;
     } catch (e) {
       debugPrint('TripService: Error updating trip: $e');
       rethrow;
@@ -253,7 +289,10 @@ class TripService {
         throw Exception('Only the trip owner can delete the trip');
       }
 
-      // Delete the trip (cascade will handle trip_members)
+      // Log the deletion before deleting (will be cascade deleted with trip)
+      await _activityLogService.logTripDeleted(tripId, trip.title);
+
+      // Delete the trip (cascade will handle trip_members and activity_logs)
       await _supabase.from('trips').delete().eq('id', tripId);
 
       debugPrint('TripService: Trip deleted: $tripId');
@@ -344,6 +383,7 @@ class TripService {
     required String tripId,
     required String userId,
     MemberRole role = MemberRole.viewer,
+    String? memberName,
   }) async {
     final currentUserId = _currentUserId;
     if (currentUserId == null) {
@@ -385,7 +425,17 @@ class TripService {
           .single();
 
       debugPrint('TripService: Member added: $userId to trip $tripId');
-      return TripMember.fromJson(response);
+      final member = TripMember.fromJson(response);
+      
+      // Log the activity with role
+      await _activityLogService.logMemberInvited(
+        tripId,
+        member.id,
+        memberName ?? 'a member',
+        role: role.name,
+      );
+      
+      return member;
     } catch (e) {
       debugPrint('TripService: Error adding member: $e');
       rethrow;
@@ -393,7 +443,7 @@ class TripService {
   }
 
   /// Remove a member from a trip
-  Future<void> removeMember(String tripId, String userId) async {
+  Future<void> removeMember(String tripId, String userId, {String? memberName}) async {
     final currentUserId = _currentUserId;
     if (currentUserId == null) {
       throw Exception('User not authenticated');
@@ -432,6 +482,13 @@ class TripService {
           .eq('user_id', userId);
 
       debugPrint('TripService: Member removed: $userId from trip $tripId');
+      
+      // Log the activity
+      await _activityLogService.logMemberRemoved(
+        tripId,
+        memberToRemove.id,
+        memberName ?? 'a member',
+      );
     } catch (e) {
       debugPrint('TripService: Error removing member: $e');
       rethrow;
@@ -439,7 +496,7 @@ class TripService {
   }
 
   /// Leave a trip (current user removes themselves)
-  Future<void> leaveTrip(String tripId) async {
+  Future<void> leaveTrip(String tripId, {String? memberName}) async {
     final userId = _currentUserId;
     if (userId == null) {
       throw Exception('User not authenticated');
@@ -463,6 +520,20 @@ class TripService {
         return;
       }
 
+      // Get the member record before deleting (needed for activity log)
+      final memberResponse = await _supabase
+          .from('trip_members')
+          .select()
+          .eq('trip_id', tripId)
+          .eq('user_id', userId)
+          .maybeSingle();
+
+      if (memberResponse == null) {
+        throw Exception('Member not found');
+      }
+
+      final memberToLeave = TripMember.fromJson(memberResponse);
+
       await _supabase
           .from('trip_members')
           .delete()
@@ -470,6 +541,9 @@ class TripService {
           .eq('user_id', userId);
 
       debugPrint('TripService: User left trip: $tripId');
+      
+      // Log the activity
+      await _activityLogService.logMemberLeft(tripId, memberToLeave.id, memberName ?? 'A member');
     } catch (e) {
       debugPrint('TripService: Error leaving trip: $e');
       rethrow;
