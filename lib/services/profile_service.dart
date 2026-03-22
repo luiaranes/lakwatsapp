@@ -123,8 +123,8 @@ class ProfileService {
       updates['home_country'] = homeCountry.trim();
     }
     
-    if (avatarUrl != null && avatarUrl.trim().isNotEmpty) {
-      updates['avatar_url'] = avatarUrl.trim();
+    if (avatarUrl != null) {
+      updates['avatar_url'] = avatarUrl.trim().isNotEmpty ? avatarUrl.trim() : null;
     }
 
     if (updates.isEmpty) {
@@ -145,10 +145,19 @@ class ProfileService {
 
   Future<int> getTripCount(String profileId) async {
     try {
+      // Get the auth_id from the profile to match with trip_members.user_id
+      final profile = await _supabase
+          .from('user_profiles')
+          .select('auth_id')
+          .eq('id', profileId)
+          .single();
+      
+      final authId = profile['auth_id'] as String;
+      
       final response = await _supabase
           .from('trip_members')
           .select('id')
-          .eq('user_profile_id', profileId);
+          .eq('user_id', authId);
 
       return (response as List).length;
     } catch (e) {
@@ -159,10 +168,19 @@ class ProfileService {
 
   Future<int> getPlacesVisitedCount(String profileId) async {
     try {
+      // Get the auth_id from the profile to match with trip_members.user_id
+      final profile = await _supabase
+          .from('user_profiles')
+          .select('auth_id')
+          .eq('id', profileId)
+          .single();
+      
+      final authId = profile['auth_id'] as String;
+      
       final response = await _supabase
           .from('trip_members')
           .select('trip:trips!inner(trip_destinations(id))')
-          .eq('user_profile_id', profileId);
+          .eq('user_id', authId);
 
       int count = 0;
       for (final item in response as List) {

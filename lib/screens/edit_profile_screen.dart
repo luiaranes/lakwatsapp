@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:larga/models/user_profile.dart';
 import 'package:larga/services/profile_service.dart';
+import 'package:larga/services/storage_service.dart';
 import 'package:larga/utils/snackbar_utils.dart';
 
 class EditProfileScreen extends StatefulWidget {
@@ -15,6 +17,7 @@ class EditProfileScreen extends StatefulWidget {
 class _EditProfileScreenState extends State<EditProfileScreen> {
   final _formKey = GlobalKey<FormState>();
   final _profileService = ProfileService();
+  final _storageService = StorageService();
 
   late final TextEditingController _displayNameController;
   late final TextEditingController _bioController;
@@ -22,7 +25,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   late final TextEditingController _homeCountryController;
 
   bool _isSaving = false;
+  bool _isUploadingAvatar = false;
   bool _hasChanges = false;
+  String? _currentAvatarUrl;
 
   @override
   void initState() {
@@ -31,6 +36,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _bioController = TextEditingController(text: widget.profile.bio ?? '');
     _homeCityController = TextEditingController(text: widget.profile.homeCity ?? '');
     _homeCountryController = TextEditingController(text: widget.profile.homeCountry ?? '');
+    _currentAvatarUrl = widget.profile.avatarUrl;
 
     _displayNameController.addListener(_onFieldChanged);
     _bioController.addListener(_onFieldChanged);
@@ -51,10 +57,179 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     final hasChanges = _displayNameController.text != (widget.profile.displayName ?? '') ||
         _bioController.text != (widget.profile.bio ?? '') ||
         _homeCityController.text != (widget.profile.homeCity ?? '') ||
-        _homeCountryController.text != (widget.profile.homeCountry ?? '');
+        _homeCountryController.text != (widget.profile.homeCountry ?? '') ||
+        _currentAvatarUrl != widget.profile.avatarUrl;
 
     if (hasChanges != _hasChanges) {
       setState(() => _hasChanges = hasChanges);
+    }
+  }
+
+  Future<void> _showAvatarOptions() async {
+    final result = await showModalBottomSheet<String>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const Text(
+                'Change Profile Photo',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 16),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.camera_alt, color: Colors.blue),
+                ),
+                title: const Text('Take Photo'),
+                subtitle: const Text('Use your camera'),
+                onTap: () => Navigator.pop(context, 'camera'),
+              ),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.purple.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.photo_library, color: Colors.purple),
+                ),
+                title: const Text('Choose from Gallery'),
+                subtitle: const Text('Select an existing photo'),
+                onTap: () => Navigator.pop(context, 'gallery'),
+              ),
+              if (_currentAvatarUrl != null) ...[
+                const Divider(),
+                ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.delete_outline, color: Colors.red),
+                  ),
+                  title: const Text('Remove Photo', style: TextStyle(color: Colors.red)),
+                  onTap: () => Navigator.pop(context, 'remove'),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (result == null) return;
+
+    if (result == 'remove') {
+      await _removeAvatar();
+    } else {
+      await _pickAndUploadAvatar(result == 'camera');
+    }
+  }
+
+  Future<void> _pickAndUploadAvatar(bool useCamera) async {
+    try {
+      setState(() => _isUploadingAvatar = true);
+
+      final XFile? image = useCamera
+          ? await _storageService.pickImageFromCamera()
+          : await _storageService.pickImageFromGallery();
+
+      if (image == null) {
+        setState(() => _isUploadingAvatar = false);
+        return;
+      }
+
+      final avatarUrl = await _storageService.uploadAvatar(image);
+      
+      if (avatarUrl != null) {
+        await _profileService.updateProfile(avatarUrl: avatarUrl);
+        
+        setState(() {
+          _currentAvatarUrl = avatarUrl;
+          _isUploadingAvatar = false;
+        });
+        
+        _onFieldChanged();
+        
+        if (mounted) {
+          SnackBarUtils.showSuccess(context, 'Profile photo updated!');
+        }
+      }
+    } catch (e) {
+      setState(() => _isUploadingAvatar = false);
+      if (mounted) {
+        SnackBarUtils.showError(context, 'Failed to upload photo: ${e.toString()}');
+      }
+    }
+  }
+
+  Future<void> _removeAvatar() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remove Photo?'),
+        content: const Text('Are you sure you want to remove your profile photo?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      setState(() => _isUploadingAvatar = true);
+      
+      await _storageService.deleteAvatar();
+      await _profileService.updateProfile(avatarUrl: '');
+      
+      setState(() {
+        _currentAvatarUrl = null;
+        _isUploadingAvatar = false;
+      });
+      
+      _onFieldChanged();
+      
+      if (mounted) {
+        SnackBarUtils.showSuccess(context, 'Profile photo removed');
+      }
+    } catch (e) {
+      setState(() => _isUploadingAvatar = false);
+      if (mounted) {
+        SnackBarUtils.showError(context, 'Failed to remove photo: ${e.toString()}');
+      }
     }
   }
 
@@ -170,7 +345,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final avatarUrl = widget.profile.avatarUrl;
     final displayName = _displayNameController.text.isNotEmpty 
         ? _displayNameController.text 
         : 'Traveler';
@@ -189,7 +363,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           title: const Text('Edit Profile'),
           actions: [
             TextButton(
-              onPressed: _hasChanges && !_isSaving ? _saveProfile : null,
+              onPressed: _hasChanges && !_isSaving && !_isUploadingAvatar ? _saveProfile : null,
               child: _isSaving
                   ? const SizedBox(
                       width: 20,
@@ -199,7 +373,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   : Text(
                       'Save',
                       style: TextStyle(
-                        color: _hasChanges ? theme.colorScheme.primary : Colors.grey,
+                        color: _hasChanges && !_isUploadingAvatar ? theme.colorScheme.primary : Colors.grey,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -217,55 +391,63 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 Center(
                   child: Column(
                     children: [
-                      Stack(
-                        children: [
-                          Container(
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: theme.colorScheme.primary.withValues(alpha: 0.2),
-                                width: 3,
-                              ),
-                            ),
-                            child: CircleAvatar(
-                              radius: 60,
-                              backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,
-                              backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.1),
-                              child: avatarUrl == null
-                                  ? Text(
-                                      displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
-                                      style: TextStyle(
-                                        fontSize: 48,
-                                        fontWeight: FontWeight.bold,
-                                        color: theme.colorScheme.primary,
-                                      ),
-                                    )
-                                  : null,
-                            ),
-                          ),
-                          Positioned(
-                            bottom: 0,
-                            right: 0,
-                            child: Container(
-                              padding: const EdgeInsets.all(8),
+                      GestureDetector(
+                        onTap: _isUploadingAvatar ? null : _showAvatarOptions,
+                        child: Stack(
+                          children: [
+                            Container(
                               decoration: BoxDecoration(
-                                color: theme.colorScheme.primary,
                                 shape: BoxShape.circle,
-                                border: Border.all(color: Colors.white, width: 2),
+                                border: Border.all(
+                                  color: theme.colorScheme.primary.withValues(alpha: 0.2),
+                                  width: 3,
+                                ),
                               ),
-                              child: const Icon(
-                                Icons.camera_alt,
-                                size: 20,
-                                color: Colors.white,
+                              child: CircleAvatar(
+                                radius: 60,
+                                backgroundImage: _currentAvatarUrl != null 
+                                    ? NetworkImage(_currentAvatarUrl!) 
+                                    : null,
+                                backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.1),
+                                child: _isUploadingAvatar
+                                    ? const CircularProgressIndicator(strokeWidth: 3)
+                                    : _currentAvatarUrl == null
+                                        ? Text(
+                                            displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
+                                            style: TextStyle(
+                                              fontSize: 48,
+                                              fontWeight: FontWeight.bold,
+                                              color: theme.colorScheme.primary,
+                                            ),
+                                          )
+                                        : null,
                               ),
                             ),
-                          ),
-                        ],
+                            if (!_isUploadingAvatar)
+                              Positioned(
+                                bottom: 0,
+                                right: 0,
+                                child: Container(
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: theme.colorScheme.primary,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(color: Colors.white, width: 2),
+                                  ),
+                                  child: const Icon(
+                                    Icons.camera_alt,
+                                    size: 20,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
                       const SizedBox(height: 8),
                       TextButton(
-                        onPressed: () => SnackBarUtils.showInfo(context, 'Avatar upload coming soon!'),
-                        child: const Text('Change Photo'),
+                        onPressed: _isUploadingAvatar ? null : _showAvatarOptions,
+                        child: Text(_isUploadingAvatar ? 'Uploading...' : 'Change Photo'),
                       ),
                     ],
                   ),
