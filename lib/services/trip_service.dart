@@ -338,4 +338,246 @@ class TripService {
     final difference = start.difference(today).inDays;
     return difference >= 0 ? difference : null;
   }
+
+  /// Add a member to a trip
+  Future<TripMember> addMember({
+    required String tripId,
+    required String userId,
+    MemberRole role = MemberRole.viewer,
+  }) async {
+    final currentUserId = _currentUserId;
+    if (currentUserId == null) {
+      throw Exception('User not authenticated');
+    }
+
+    try {
+      // Check if current user can add members (owner or editor)
+      final myRole = await getMyRole(tripId);
+      if (myRole != MemberRole.owner && myRole != MemberRole.editor) {
+        throw Exception('You do not have permission to add members');
+      }
+
+      // Owner role can only be set by existing owner
+      if (role == MemberRole.owner && myRole != MemberRole.owner) {
+        throw Exception('Only the trip owner can add another owner');
+      }
+
+      // Check if user is already a member
+      final existingMember = await _supabase
+          .from('trip_members')
+          .select()
+          .eq('trip_id', tripId)
+          .eq('user_id', userId)
+          .maybeSingle();
+
+      if (existingMember != null) {
+        throw Exception('User is already a member of this trip');
+      }
+
+      final response = await _supabase
+          .from('trip_members')
+          .insert({
+            'trip_id': tripId,
+            'user_id': userId,
+            'role': role.name,
+          })
+          .select()
+          .single();
+
+      debugPrint('TripService: Member added: $userId to trip $tripId');
+      return TripMember.fromJson(response);
+    } catch (e) {
+      debugPrint('TripService: Error adding member: $e');
+      rethrow;
+    }
+  }
+
+  /// Remove a member from a trip
+  Future<void> removeMember(String tripId, String userId) async {
+    final currentUserId = _currentUserId;
+    if (currentUserId == null) {
+      throw Exception('User not authenticated');
+    }
+
+    try {
+      final myRole = await getMyRole(tripId);
+      
+      // Get the member being removed
+      final memberResponse = await _supabase
+          .from('trip_members')
+          .select()
+          .eq('trip_id', tripId)
+          .eq('user_id', userId)
+          .maybeSingle();
+
+      if (memberResponse == null) {
+        throw Exception('Member not found');
+      }
+
+      final memberToRemove = TripMember.fromJson(memberResponse);
+
+      // Only owner can remove others; owners can't be removed
+      if (memberToRemove.isOwner) {
+        throw Exception('Cannot remove the trip owner');
+      }
+
+      if (myRole != MemberRole.owner) {
+        throw Exception('Only the trip owner can remove members');
+      }
+
+      await _supabase
+          .from('trip_members')
+          .delete()
+          .eq('trip_id', tripId)
+          .eq('user_id', userId);
+
+      debugPrint('TripService: Member removed: $userId from trip $tripId');
+    } catch (e) {
+      debugPrint('TripService: Error removing member: $e');
+      rethrow;
+    }
+  }
+
+  /// Leave a trip (current user removes themselves)
+  Future<void> leaveTrip(String tripId) async {
+    final userId = _currentUserId;
+    if (userId == null) {
+      throw Exception('User not authenticated');
+    }
+
+    try {
+      final myRole = await getMyRole(tripId);
+      
+      if (myRole == null) {
+        throw Exception('You are not a member of this trip');
+      }
+
+      if (myRole == MemberRole.owner) {
+        // Check if there are other members
+        final members = await getTripMembers(tripId);
+        if (members.length > 1) {
+          throw Exception('Transfer ownership before leaving, or delete the trip');
+        }
+        // If owner is the only member, delete the trip instead
+        await deleteTrip(tripId);
+        return;
+      }
+
+      await _supabase
+          .from('trip_members')
+          .delete()
+          .eq('trip_id', tripId)
+          .eq('user_id', userId);
+
+      debugPrint('TripService: User left trip: $tripId');
+    } catch (e) {
+      debugPrint('TripService: Error leaving trip: $e');
+      rethrow;
+    }
+  }
+
+  /// Update a member's role
+  Future<TripMember> updateMemberRole({
+    required String tripId,
+    required String userId,
+    required MemberRole newRole,
+  }) async {
+    final currentUserId = _currentUserId;
+    if (currentUserId == null) {
+      throw Exception('User not authenticated');
+    }
+
+    try {
+      final myRole = await getMyRole(tripId);
+      
+      if (myRole != MemberRole.owner) {
+        throw Exception('Only the trip owner can change member roles');
+      }
+
+      // Can't change own role (owner)
+      if (userId == currentUserId) {
+        throw Exception('Cannot change your own role');
+      }
+
+      // If setting someone as owner, need to transfer ownership
+      if (newRole == MemberRole.owner) {
+        return await transferOwnership(tripId, userId);
+      }
+
+      final response = await _supabase
+          .from('trip_members')
+          .update({'role': newRole.name})
+          .eq('trip_id', tripId)
+          .eq('user_id', userId)
+          .select()
+          .single();
+
+      debugPrint('TripService: Member role updated: $userId to ${newRole.name}');
+      return TripMember.fromJson(response);
+    } catch (e) {
+      debugPrint('TripService: Error updating member role: $e');
+      rethrow;
+    }
+  }
+
+  /// Transfer trip ownership to another member
+  Future<TripMember> transferOwnership(String tripId, String newOwnerId) async {
+    final currentUserId = _currentUserId;
+    if (currentUserId == null) {
+      throw Exception('User not authenticated');
+    }
+
+    try {
+      final myRole = await getMyRole(tripId);
+      
+      if (myRole != MemberRole.owner) {
+        throw Exception('Only the trip owner can transfer ownership');
+      }
+
+      // Demote current owner to editor
+      await _supabase
+          .from('trip_members')
+          .update({'role': MemberRole.editor.name})
+          .eq('trip_id', tripId)
+          .eq('user_id', currentUserId);
+
+      // Promote new owner
+      final response = await _supabase
+          .from('trip_members')
+          .update({'role': MemberRole.owner.name})
+          .eq('trip_id', tripId)
+          .eq('user_id', newOwnerId)
+          .select()
+          .single();
+
+      // Update trip owner_id
+      await _supabase
+          .from('trips')
+          .update({'owner_id': newOwnerId})
+          .eq('id', tripId);
+
+      debugPrint('TripService: Ownership transferred to: $newOwnerId');
+      return TripMember.fromJson(response);
+    } catch (e) {
+      debugPrint('TripService: Error transferring ownership: $e');
+      rethrow;
+    }
+  }
+
+  /// Check if a user is already a member of a trip
+  Future<bool> isMember(String tripId, String userId) async {
+    try {
+      final response = await _supabase
+          .from('trip_members')
+          .select('id')
+          .eq('trip_id', tripId)
+          .eq('user_id', userId)
+          .maybeSingle();
+
+      return response != null;
+    } catch (e) {
+      debugPrint('TripService: Error checking membership: $e');
+      return false;
+    }
+  }
 }
