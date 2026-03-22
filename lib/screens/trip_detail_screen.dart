@@ -14,6 +14,7 @@ import 'package:larga/screens/trip_members_screen.dart';
 import 'package:larga/screens/invite_member_sheet.dart';
 import 'package:larga/screens/itinerary_screen.dart';
 import 'package:larga/widgets/activity_log_list.dart';
+import 'package:larga/widgets/skeleton_widgets.dart';
 
 class TripDetailScreen extends StatefulWidget {
   final String tripId;
@@ -247,11 +248,9 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
+    // Show skeleton only when we don't have any trip data yet
     if (_isLoading && _trip == null) {
-      return Scaffold(
-        appBar: AppBar(),
-        body: const Center(child: CircularProgressIndicator()),
-      );
+      return const TripDetailSkeleton();
     }
 
     if (_trip == null) {
@@ -479,8 +478,9 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
                       _StatCard(
                         icon: Icons.people_outline,
                         label: 'Members',
-                        value: '$_memberCount',
+                        value: _isLoading ? '-' : '$_memberCount',
                         color: Colors.blue,
+                        isLoading: _isLoading,
                       ),
                       const SizedBox(width: 12),
                       _StatCard(
@@ -673,6 +673,57 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   }
 
   Widget _buildItinerarySection() {
+    if (_isLoading) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.grey[50],
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey[200]!),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey[200],
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const SizedBox(width: 24, height: 24),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 120,
+                      height: 14,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      width: 180,
+                      height: 12,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[200],
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     if (_itineraryCount == 0) {
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -817,6 +868,57 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   }
 
   Widget _buildMembersPreview() {
+    if (_isLoading) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.grey[50],
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey[200]!),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 80,
+                      height: 14,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      width: 140,
+                      height: 12,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[200],
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     final displayCount = _memberPreviews.isNotEmpty 
         ? _memberPreviews.length.clamp(1, 4) 
         : 1;
@@ -1066,12 +1168,14 @@ class _StatCard extends StatelessWidget {
   final String label;
   final String value;
   final Color color;
+  final bool isLoading;
 
   const _StatCard({
     required this.icon,
     required this.label,
     required this.value,
     required this.color,
+    this.isLoading = false,
   });
 
   @override
@@ -1087,16 +1191,25 @@ class _StatCard extends StatelessWidget {
           children: [
             Icon(icon, color: color, size: 24),
             const SizedBox(height: 8),
-            Text(
-              value,
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                color: color,
-                fontSize: 14,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
+            isLoading
+                ? SizedBox(
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: color,
+                    ),
+                  )
+                : Text(
+                    value,
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: color,
+                      fontSize: 14,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
             const SizedBox(height: 2),
             Text(
               label,

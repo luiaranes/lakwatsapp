@@ -7,6 +7,7 @@ import 'package:larga/services/trip_service.dart';
 import 'package:larga/utils/snackbar_utils.dart';
 import 'package:larga/screens/add_edit_itinerary_item_screen.dart';
 import 'package:larga/widgets/itinerary_item_card.dart';
+import 'package:larga/widgets/skeleton_widgets.dart';
 
 class ItineraryScreen extends StatefulWidget {
   final String tripId;
@@ -190,7 +191,7 @@ class _ItineraryScreenState extends State<ItineraryScreen> {
         appBar: AppBar(
           title: Text(_trip?.title ?? 'Itinerary'),
         ),
-        body: const Center(child: CircularProgressIndicator()),
+        body: const ItineraryListSkeleton(),
       );
     }
 

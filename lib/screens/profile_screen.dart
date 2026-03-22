@@ -8,6 +8,7 @@ import 'package:larga/screens/sign_in_screen.dart';
 import 'package:larga/screens/edit_profile_screen.dart';
 import 'package:larga/screens/friends_screen.dart';
 import 'package:larga/utils/snackbar_utils.dart';
+import 'package:larga/widgets/skeleton_widgets.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -183,23 +184,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final location = _buildLocationString();
 
     if (_isLoading) {
-      return Scaffold(
-        body: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                theme.colorScheme.primary,
-                theme.colorScheme.primary.withValues(alpha: 0.8),
-              ],
-            ),
-          ),
-          child: const Center(
-            child: CircularProgressIndicator(color: Colors.white),
-          ),
-        ),
-      );
+      return const ProfileSkeleton();
     }
 
     return Scaffold(
