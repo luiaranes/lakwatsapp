@@ -70,6 +70,6 @@ class TripMember {
     );
   }
 
-  bool get canEdit => role == MemberRole.owner || role == MemberRole.editor;
+  bool get canEdit => true; // All members can edit
   bool get isOwner => role == MemberRole.owner;
 }

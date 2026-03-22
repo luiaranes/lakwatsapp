@@ -317,10 +317,10 @@ class TripService {
     }
   }
 
-  /// Check if current user can edit the trip
+  /// Check if current user can edit the trip (all members can edit)
   Future<bool> canEdit(String tripId) async {
     final role = await getMyRole(tripId);
-    return role == MemberRole.owner || role == MemberRole.editor;
+    return role != null;
   }
 
   /// Check if current user is the trip owner
@@ -351,9 +351,9 @@ class TripService {
     }
 
     try {
-      // Check if current user can add members (owner or editor)
+      // Check if current user is a member (all members can invite)
       final myRole = await getMyRole(tripId);
-      if (myRole != MemberRole.owner && myRole != MemberRole.editor) {
+      if (myRole == null) {
         throw Exception('You do not have permission to add members');
       }
 
