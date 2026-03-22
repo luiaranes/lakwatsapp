@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:larga/services/auth_service.dart';
+import 'package:larga/utils/snackbar_utils.dart';
 
 class SignInScreen extends StatefulWidget {
   const SignInScreen({super.key});
@@ -34,12 +35,7 @@ class _SignInScreenState extends State<SignInScreen> {
         final errorMsg = e.toString();
         // Don't show error for user cancellation
         if (!errorMsg.contains('cancelled') && !errorMsg.contains('canceled')) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Sign in failed: ${e.toString()}'),
-              backgroundColor: Colors.red,
-            ),
-          );
+          SnackBarUtils.showError(context, 'Sign in failed: $errorMsg');
         }
         setState(() => _isLoading = false);
       }

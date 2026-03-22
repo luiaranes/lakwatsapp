@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:larga/utils/snackbar_utils.dart';
 
 class TripsScreen extends StatefulWidget {
   const TripsScreen({super.key});
@@ -72,9 +73,7 @@ class _TripsScreenState extends State<TripsScreen> with SingleTickerProviderStat
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Create trip coming in Phase 1!')),
-          );
+          SnackBarUtils.showInfo(context, 'Create trip coming in Phase 1!');
         },
         icon: const Icon(Icons.add),
         label: const Text('New Trip'),

@@ -1,6 +1,11 @@
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/material.dart';
 import 'package:larga/services/auth_service.dart';
+import 'package:larga/services/profile_service.dart';
+import 'package:larga/models/user_profile.dart';
 import 'package:larga/screens/sign_in_screen.dart';
+import 'package:larga/screens/edit_profile_screen.dart';
+import 'package:larga/utils/snackbar_utils.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -11,6 +16,56 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   final _authService = AuthService();
+  final _profileService = ProfileService();
+
+  UserProfile? _profile;
+  bool _isLoading = true;
+  int _tripCount = 0;
+  int _placesCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfile();
+  }
+
+  Future<void> _loadProfile() async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final profile = await _profileService.getCurrentUserProfile();
+      debugPrint('ProfileScreen: Loaded profile: ${profile?.id}');
+      
+      int tripCount = 0;
+      int placesCount = 0;
+      
+      if (profile != null) {
+        tripCount = await _profileService.getTripCount(profile.id);
+        placesCount = await _profileService.getPlacesVisitedCount(profile.id);
+      }
+
+      if (mounted) {
+        setState(() {
+          _profile = profile;
+          _tripCount = tripCount;
+          _placesCount = placesCount;
+          _isLoading = false;
+        });
+      }
+    } catch (e, stack) {
+      debugPrint('ProfileScreen: Error loading profile: $e');
+      debugPrint('ProfileScreen: Stack trace: $stack');
+      if (mounted) {
+        setState(() {
+          // Don't show error, just proceed without profile data
+          _profile = null;
+          _isLoading = false;
+        });
+      }
+    }
+  }
 
   Future<void> _signOut() async {
     final confirmed = await showDialog<bool>(
@@ -43,13 +98,41 @@ class _ProfileScreenState extends State<ProfileScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Sign out failed: ${e.toString()}'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        SnackBarUtils.showError(context, 'Sign out failed: ${e.toString()}');
       }
+    }
+  }
+
+  void _navigateToEditProfile() async {
+    if (_profile == null) {
+      // Profile doesn't exist in database yet, try to create it first
+      try {
+        await _profileService.createProfileIfNotExists();
+        await _loadProfile();
+        if (_profile == null) {
+          if (mounted) {
+            SnackBarUtils.showInfo(context, 'Unable to load profile. Please try again.');
+          }
+          return;
+        }
+      } catch (e) {
+        debugPrint('Error creating profile: $e');
+        if (mounted) {
+          SnackBarUtils.showInfo(context, 'Unable to create profile. Please try again.');
+        }
+        return;
+      }
+    }
+    
+    final result = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => EditProfileScreen(profile: _profile!),
+      ),
+    );
+    
+    if (result == true) {
+      _loadProfile();
     }
   }
 
@@ -57,124 +140,217 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final user = _authService.currentUser;
-    final displayName = user?.userMetadata?['full_name'] as String? ?? 'Traveler';
     final email = user?.email ?? '';
-    final avatarUrl = user?.userMetadata?['avatar_url'] as String?;
+
+    final displayName = _profile?.displayName ?? 
+        user?.userMetadata?['full_name'] as String? ?? 
+        'Traveler';
+    final avatarUrl = _profile?.avatarUrl ?? 
+        user?.userMetadata?['avatar_url'] as String?;
+    final bio = _profile?.bio;
+    final location = _buildLocationString();
+
+    if (_isLoading) {
+      return Scaffold(
+        body: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                theme.colorScheme.primary,
+                theme.colorScheme.primary.withValues(alpha: 0.8),
+              ],
+            ),
+          ),
+          child: const Center(
+            child: CircularProgressIndicator(color: Colors.white),
+          ),
+        ),
+      );
+    }
 
     return Scaffold(
-      body: CustomScrollView(
-        slivers: [
-          // Profile Header
-          SliverToBoxAdapter(
-            child: Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    theme.colorScheme.primary,
-                    theme.colorScheme.primary.withValues(alpha: 0.8),
-                  ],
+      body: RefreshIndicator(
+        onRefresh: _loadProfile,
+        color: theme.colorScheme.primary,
+        child: CustomScrollView(
+          slivers: [
+            // Profile Header
+            SliverToBoxAdapter(
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      theme.colorScheme.primary,
+                      theme.colorScheme.primary.withValues(alpha: 0.8),
+                    ],
+                  ),
                 ),
-              ),
-              child: SafeArea(
-                bottom: false,
-                child: Column(
-                  children: [
-                    // Top actions
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const SizedBox(width: 48),
-                          Text(
-                            'Profile',
-                            style: theme.textTheme.titleLarge?.copyWith(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
+                child: SafeArea(
+                  bottom: false,
+                  child: Column(
+                    children: [
+                      // Top actions
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const SizedBox(width: 48),
+                            Text(
+                              'Profile',
+                              style: theme.textTheme.titleLarge?.copyWith(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.settings_outlined, color: Colors.white),
-                            onPressed: () {},
-                          ),
-                        ],
+                            IconButton(
+                              icon: const Icon(Icons.settings_outlined, color: Colors.white),
+                              onPressed: () {},
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 16),
-                    // Avatar
-                    Container(
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 4),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.2),
-                            blurRadius: 20,
-                          ),
-                        ],
-                      ),
-                      child: CircleAvatar(
-                        radius: 50,
-                        backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,
-                        backgroundColor: Colors.white,
-                        child: avatarUrl == null
-                            ? Text(
-                                displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
-                                style: TextStyle(
-                                  fontSize: 40,
-                                  fontWeight: FontWeight.bold,
-                                  color: theme.colorScheme.primary,
+                      const SizedBox(height: 16),
+                      // Avatar
+                      GestureDetector(
+                        onTap: _navigateToEditProfile,
+                        child: Stack(
+                          children: [
+                            Container(
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                border: Border.all(color: Colors.white, width: 4),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.2),
+                                    blurRadius: 20,
+                                  ),
+                                ],
+                              ),
+                              child: CircleAvatar(
+                                radius: 50,
+                                backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,
+                                backgroundColor: Colors.white,
+                                child: avatarUrl == null
+                                    ? Text(
+                                        displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
+                                        style: TextStyle(
+                                          fontSize: 40,
+                                          fontWeight: FontWeight.bold,
+                                          color: theme.colorScheme.primary,
+                                        ),
+                                      )
+                                    : null,
+                              ),
+                            ),
+                            Positioned(
+                              bottom: 0,
+                              right: 0,
+                              child: Container(
+                                padding: const EdgeInsets.all(6),
+                                decoration: BoxDecoration(
+                                  color: theme.colorScheme.secondary,
+                                  shape: BoxShape.circle,
+                                  border: Border.all(color: Colors.white, width: 2),
                                 ),
-                              )
-                            : null,
+                                child: const Icon(
+                                  Icons.camera_alt,
+                                  size: 16,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 16),
-                    // Name & Email
-                    Text(
-                      displayName,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
+                      const SizedBox(height: 16),
+                      // Name
+                      Text(
+                        displayName,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      email,
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.8),
-                        fontSize: 14,
+                      // Location
+                      if (location.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.location_on,
+                              size: 14,
+                              color: Colors.white.withValues(alpha: 0.8),
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              location,
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.8),
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                      const SizedBox(height: 4),
+                      Text(
+                        email,
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.7),
+                          fontSize: 13,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 24),
-                    // Stats
-                    Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 24),
-                      padding: const EdgeInsets.symmetric(vertical: 20),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(16),
+                      // Bio
+                      if (bio != null && bio.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 32),
+                          child: Text(
+                            bio,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.9),
+                              fontSize: 14,
+                              fontStyle: FontStyle.italic,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 24),
+                      // Stats
+                      Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 24),
+                        padding: const EdgeInsets.symmetric(vertical: 20),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: [
+                            _StatItem(value: '$_tripCount', label: 'Trips'),
+                            _divider(),
+                            _StatItem(value: '$_placesCount', label: 'Places'),
+                            _divider(),
+                            const _StatItem(value: '0', label: 'Friends'),
+                          ],
+                        ),
                       ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        children: [
-                          _StatItem(value: '4', label: 'Trips'),
-                          _divider(),
-                          _StatItem(value: '12', label: 'Places'),
-                          _divider(),
-                          _StatItem(value: '8', label: 'Friends'),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                  ],
+                      const SizedBox(height: 24),
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
           
           // Menu Items
           SliverToBoxAdapter(
@@ -199,7 +375,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         iconColor: Colors.blue,
                         title: 'Edit Profile',
                         subtitle: 'Update your info and photo',
-                        onTap: () => _showComingSoon(context),
+                        onTap: _navigateToEditProfile,
                       ),
                       _MenuItem(
                         icon: Icons.wallet_outlined,
@@ -326,8 +502,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
           ),
         ],
+        ),
       ),
     );
+  }
+
+  String _buildLocationString() {
+    final city = _profile?.homeCity;
+    final country = _profile?.homeCountry;
+    
+    if (city != null && city.isNotEmpty && country != null && country.isNotEmpty) {
+      return '$city, $country';
+    } else if (city != null && city.isNotEmpty) {
+      return city;
+    } else if (country != null && country.isNotEmpty) {
+      return country;
+    }
+    return '';
   }
 
   Widget _divider() {
@@ -339,9 +530,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   void _showComingSoon(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Coming soon!')),
-    );
+    SnackBarUtils.showInfo(context, 'Coming soon!');
   }
 }
 

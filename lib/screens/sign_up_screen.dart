@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:larga/services/auth_service.dart';
 import 'package:larga/screens/main_shell.dart';
+import 'package:larga/utils/snackbar_utils.dart';
 
 class SignUpScreen extends StatefulWidget {
   const SignUpScreen({super.key});
@@ -44,12 +45,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
       );
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Account created successfully!'),
-            backgroundColor: Colors.green,
-          ),
-        );
+        SnackBarUtils.showSuccess(context, 'Account created successfully!');
 
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (_) => const MainShell()),
@@ -57,12 +53,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Sign up failed: ${e.toString()}'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        SnackBarUtils.showError(context, 'Sign up failed: ${e.toString()}');
       }
     } finally {
       if (mounted) {
@@ -91,12 +82,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
         final errorMsg = e.toString();
         // Don't show error for user cancellation
         if (!errorMsg.contains('cancelled') && !errorMsg.contains('canceled')) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Sign up failed: ${e.toString()}'),
-              backgroundColor: Colors.red,
-            ),
-          );
+          SnackBarUtils.showError(context, 'Sign up failed: $errorMsg');
         }
         setState(() => _isLoading = false);
       }
