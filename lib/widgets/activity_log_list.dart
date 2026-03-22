@@ -4,6 +4,7 @@ import 'package:larga/models/activity_log.dart';
 import 'package:larga/models/user_profile.dart';
 import 'package:larga/services/activity_log_service.dart';
 import 'package:larga/services/profile_service.dart';
+import 'package:larga/widgets/skeleton_widgets.dart';
 
 class ActivityLogList extends StatefulWidget {
   final String tripId;
@@ -110,11 +111,8 @@ class _ActivityLogListState extends State<ActivityLogList> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.all(24),
-          child: CircularProgressIndicator(),
-        ),
+      return Column(
+        children: List.generate(3, (_) => const ActivityLogItemSkeleton()),
       );
     }
 
@@ -571,7 +569,11 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
         title: Text(widget.tripTitle != null ? 'Activity • ${widget.tripTitle}' : 'Activity'),
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? ListView.builder(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              itemCount: 8,
+              itemBuilder: (_, __) => const ActivityLogItemSkeleton(),
+            )
           : _logs.isEmpty
               ? _buildEmptyState()
               : RefreshIndicator(

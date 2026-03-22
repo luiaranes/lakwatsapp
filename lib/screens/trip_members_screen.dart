@@ -6,6 +6,7 @@ import 'package:larga/services/trip_service.dart';
 import 'package:larga/services/profile_service.dart';
 import 'package:larga/utils/snackbar_utils.dart';
 import 'package:larga/screens/invite_member_sheet.dart';
+import 'package:larga/widgets/skeleton_widgets.dart';
 
 class TripMembersScreen extends StatefulWidget {
   final String tripId;
@@ -257,7 +258,7 @@ class _TripMembersScreenState extends State<TripMembersScreen> {
         ],
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? const MembersListSkeleton()
           : RefreshIndicator(
               onRefresh: _loadMembers,
               child: ListView.builder(

@@ -3,6 +3,7 @@ import 'package:larga/models/user_profile.dart';
 import 'package:larga/services/friendship_service.dart';
 import 'package:larga/utils/snackbar_utils.dart';
 import 'package:larga/screens/add_friend_sheet.dart';
+import 'package:larga/widgets/skeleton_widgets.dart';
 
 class FriendsScreen extends StatefulWidget {
   const FriendsScreen({super.key});
@@ -206,7 +207,7 @@ class _FriendsScreenState extends State<FriendsScreen>
         ),
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? const FriendsListSkeleton()
           : RefreshIndicator(
               onRefresh: _loadData,
               child: TabBarView(

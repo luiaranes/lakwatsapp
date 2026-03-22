@@ -4,6 +4,7 @@ import 'package:larga/models/trip.dart';
 import 'package:larga/services/trip_service.dart';
 import 'package:larga/screens/create_trip_screen.dart';
 import 'package:larga/screens/trip_detail_screen.dart';
+import 'package:larga/widgets/skeleton_widgets.dart';
 
 class TripsScreen extends StatefulWidget {
   const TripsScreen({super.key});
@@ -135,7 +136,7 @@ class _TripsScreenState extends State<TripsScreen> with SingleTickerProviderStat
           ),
         ],
         body: _isLoading
-            ? const Center(child: CircularProgressIndicator())
+            ? const TripsListSkeleton()
             : _error != null
                 ? _buildErrorState(theme)
                 : hasTrips
