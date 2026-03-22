@@ -195,4 +195,77 @@ class ProfileService {
       return 0;
     }
   }
+
+  Future<List<UserProfile>> searchUsers(String query, {int limit = 10}) async {
+    if (query.trim().isEmpty) return [];
+
+    try {
+      final response = await _supabase.rpc(
+        'search_users',
+        params: {
+          'search_term': query.trim(),
+          'result_limit': limit,
+        },
+      );
+
+      if (response == null) return [];
+      return (response as List)
+          .map((item) => UserProfile.fromJson(item as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      debugPrint('ProfileService: Error searching users: $e');
+      return [];
+    }
+  }
+
+  Future<UserProfile?> getUserByEmail(String email) async {
+    try {
+      final response = await _supabase.rpc(
+        'get_user_profile_by_email',
+        params: {'user_email': email.trim().toLowerCase()},
+      );
+
+      if (response == null || (response as List).isEmpty) return null;
+      return UserProfile.fromJson(response[0] as Map<String, dynamic>);
+    } catch (e) {
+      debugPrint('ProfileService: Error getting user by email: $e');
+      return null;
+    }
+  }
+
+  Future<List<UserProfile>> getProfilesByIds(List<String> profileIds) async {
+    if (profileIds.isEmpty) return [];
+
+    try {
+      final response = await _supabase
+          .from('user_profiles')
+          .select()
+          .inFilter('id', profileIds);
+
+      return (response as List)
+          .map((item) => UserProfile.fromJson(item as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      debugPrint('ProfileService: Error getting profiles by ids: $e');
+      return [];
+    }
+  }
+
+  Future<List<UserProfile>> getProfilesByAuthIds(List<String> authIds) async {
+    if (authIds.isEmpty) return [];
+
+    try {
+      final response = await _supabase
+          .from('user_profiles')
+          .select()
+          .inFilter('auth_id', authIds);
+
+      return (response as List)
+          .map((item) => UserProfile.fromJson(item as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      debugPrint('ProfileService: Error getting profiles by auth ids: $e');
+      return [];
+    }
+  }
 }

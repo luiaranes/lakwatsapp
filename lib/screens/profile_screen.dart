@@ -2,9 +2,11 @@ import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/material.dart';
 import 'package:larga/services/auth_service.dart';
 import 'package:larga/services/profile_service.dart';
+import 'package:larga/services/friendship_service.dart';
 import 'package:larga/models/user_profile.dart';
 import 'package:larga/screens/sign_in_screen.dart';
 import 'package:larga/screens/edit_profile_screen.dart';
+import 'package:larga/screens/friends_screen.dart';
 import 'package:larga/utils/snackbar_utils.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -17,11 +19,14 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   final _authService = AuthService();
   final _profileService = ProfileService();
+  final _friendshipService = FriendshipService();
 
   UserProfile? _profile;
   bool _isLoading = true;
   int _tripCount = 0;
   int _placesCount = 0;
+  int _friendCount = 0;
+  int _pendingRequestCount = 0;
 
   @override
   void initState() {
@@ -35,15 +40,32 @@ class _ProfileScreenState extends State<ProfileScreen> {
     });
 
     try {
-      final profile = await _profileService.getCurrentUserProfile();
+      var profile = await _profileService.getCurrentUserProfile();
+      
+      // Auto-create profile if it doesn't exist (e.g., was deleted or trigger failed)
+      if (profile == null) {
+        debugPrint('ProfileScreen: No profile found, creating one...');
+        profile = await _profileService.createProfileIfNotExists();
+      }
+      
       debugPrint('ProfileScreen: Loaded profile: ${profile?.id}');
       
       int tripCount = 0;
       int placesCount = 0;
+      int friendCount = 0;
+      int pendingCount = 0;
       
       if (profile != null) {
-        tripCount = await _profileService.getTripCount(profile.id);
-        placesCount = await _profileService.getPlacesVisitedCount(profile.id);
+        final results = await Future.wait([
+          _profileService.getTripCount(profile.id),
+          _profileService.getPlacesVisitedCount(profile.id),
+          _friendshipService.getFriendCount(),
+          _friendshipService.getPendingRequestCount(),
+        ]);
+        tripCount = results[0];
+        placesCount = results[1];
+        friendCount = results[2];
+        pendingCount = results[3];
       }
 
       if (mounted) {
@@ -51,6 +73,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
           _profile = profile;
           _tripCount = tripCount;
           _placesCount = placesCount;
+          _friendCount = friendCount;
+          _pendingRequestCount = pendingCount;
           _isLoading = false;
         });
       }
@@ -101,6 +125,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
         SnackBarUtils.showError(context, 'Sign out failed: ${e.toString()}');
       }
     }
+  }
+
+  void _navigateToFriends() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const FriendsScreen()),
+    );
+    _loadProfile();
   }
 
   void _navigateToEditProfile() async {
@@ -341,7 +373,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             _divider(),
                             _StatItem(value: '$_placesCount', label: 'Places'),
                             _divider(),
-                            const _StatItem(value: '0', label: 'Friends'),
+                            _ClickableStatItem(
+                              value: '$_friendCount',
+                              label: 'Friends',
+                              badgeCount: _pendingRequestCount,
+                              onTap: _navigateToFriends,
+                            ),
                           ],
                         ),
                       ),
@@ -376,6 +413,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         title: 'Edit Profile',
                         subtitle: 'Update your info and photo',
                         onTap: _navigateToEditProfile,
+                      ),
+                      _MenuItemWithBadge(
+                        icon: Icons.people_outline,
+                        iconColor: Colors.purple,
+                        title: 'Friends',
+                        subtitle: 'Manage your friends list',
+                        badgeCount: _pendingRequestCount,
+                        onTap: _navigateToFriends,
                       ),
                       _MenuItem(
                         icon: Icons.wallet_outlined,
@@ -565,6 +610,76 @@ class _StatItem extends StatelessWidget {
   }
 }
 
+class _ClickableStatItem extends StatelessWidget {
+  final String value;
+  final String label;
+  final int badgeCount;
+  final VoidCallback onTap;
+
+  const _ClickableStatItem({
+    required this.value,
+    required this.label,
+    this.badgeCount = 0,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: Column(
+          children: [
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Text(
+                  value,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                if (badgeCount > 0)
+                  Positioned(
+                    right: -12,
+                    top: -4,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.red,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        badgeCount > 99 ? '99+' : '$badgeCount',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.8),
+                fontSize: 13,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _MenuCard extends StatelessWidget {
   final List<Widget> children;
 
@@ -636,6 +751,92 @@ class _MenuItem extends StatelessWidget {
                 )
               : null,
           trailing: trailing ?? Icon(Icons.chevron_right, color: Colors.grey[400]),
+          onTap: onTap,
+        ),
+        if (showDivider)
+          Divider(
+            height: 1,
+            indent: 72,
+            endIndent: 16,
+            color: Colors.grey[200],
+          ),
+      ],
+    );
+  }
+}
+
+class _MenuItemWithBadge extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
+  final String title;
+  final String? subtitle;
+  final int badgeCount;
+  final VoidCallback onTap;
+  final bool showDivider;
+
+  const _MenuItemWithBadge({
+    required this.icon,
+    required this.iconColor,
+    required this.title,
+    this.subtitle,
+    this.badgeCount = 0,
+    required this.onTap,
+    this.showDivider = true,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        ListTile(
+          leading: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: iconColor.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(icon, color: iconColor, size: 22),
+              ),
+              if (badgeCount > 0)
+                Positioned(
+                  right: -6,
+                  top: -4,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.red,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      badgeCount > 99 ? '99+' : '$badgeCount',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          title: Text(
+            title,
+            style: const TextStyle(fontWeight: FontWeight.w500),
+          ),
+          subtitle: subtitle != null
+              ? Text(
+                  subtitle!,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[500],
+                  ),
+                )
+              : null,
+          trailing: Icon(Icons.chevron_right, color: Colors.grey[400]),
           onTap: onTap,
         ),
         if (showDivider)

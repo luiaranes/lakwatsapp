@@ -7,3 +7,4 @@ export 'itinerary_item.dart';
 export 'expense.dart';
 export 'expense_split.dart';
 export 'post.dart';
+export 'friendship.dart';

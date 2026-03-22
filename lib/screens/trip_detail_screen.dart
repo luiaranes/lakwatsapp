@@ -1,10 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:larga/models/trip.dart';
+import 'package:larga/models/trip_member.dart';
+import 'package:larga/models/user_profile.dart';
 import 'package:larga/services/trip_service.dart';
 import 'package:larga/services/storage_service.dart';
+import 'package:larga/services/profile_service.dart';
 import 'package:larga/utils/snackbar_utils.dart';
 import 'package:larga/screens/edit_trip_screen.dart';
+import 'package:larga/screens/trip_members_screen.dart';
+import 'package:larga/screens/invite_member_sheet.dart';
 
 class TripDetailScreen extends StatefulWidget {
   final String tripId;
@@ -23,12 +28,14 @@ class TripDetailScreen extends StatefulWidget {
 class _TripDetailScreenState extends State<TripDetailScreen> {
   final _tripService = TripService();
   final _storageService = StorageService();
+  final _profileService = ProfileService();
 
   Trip? _trip;
   bool _isLoading = true;
   bool _canEdit = false;
   bool _isOwner = false;
   int _memberCount = 1;
+  List<_MemberPreview> _memberPreviews = [];
 
   @override
   void initState() {
@@ -43,16 +50,38 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
         _tripService.getTripById(widget.tripId),
         _tripService.canEdit(widget.tripId),
         _tripService.isOwner(widget.tripId),
-        _tripService.getTripMemberCount(widget.tripId),
+        _tripService.getTripMembers(widget.tripId),
       ]);
 
       if (!mounted) return;
+
+      final members = results[3] as List<TripMember>;
+      _memberCount = members.length;
+
+      // Load member profiles for preview (up to 4)
+      final previewMembers = members.take(4).toList();
+      final authIds = previewMembers.map((m) => m.userId).toList();
+      final profiles = await _profileService.getProfilesByAuthIds(authIds);
+      final profileMap = {for (var p in profiles) p.authId: p};
+
+      _memberPreviews = previewMembers.map((m) {
+        return _MemberPreview(
+          member: m,
+          profile: profileMap[m.userId],
+        );
+      }).toList();
+
+      // Sort: owner first
+      _memberPreviews.sort((a, b) {
+        if (a.member.isOwner) return -1;
+        if (b.member.isOwner) return 1;
+        return 0;
+      });
 
       setState(() {
         _trip = results[0] as Trip?;
         _canEdit = results[1] as bool;
         _isOwner = results[2] as bool;
-        _memberCount = results[3] as int;
         _isLoading = false;
       });
     } catch (e) {
@@ -610,73 +639,147 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
     );
   }
 
-  Widget _buildMembersPreview() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.grey[50],
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.grey[200]!),
-        ),
-        child: Row(
-          children: [
-            // Member avatars
-            SizedBox(
-              width: 80,
-              height: 36,
-              child: Stack(
-                clipBehavior: Clip.none,
-                children: List.generate(
-                  (_memberCount > 3 ? 3 : _memberCount).clamp(1, 3),
-                  (i) => Positioned(
-                    left: i * 20.0,
-                    child: CircleAvatar(
-                      radius: 18,
-                      backgroundColor: Colors.white,
-                      child: CircleAvatar(
-                        radius: 16,
-                        backgroundColor: Colors.primaries[i * 3 % Colors.primaries.length],
-                        child: Text(
-                          ['Y', 'M', 'J'][i % 3],
-                          style: const TextStyle(color: Colors.white, fontSize: 12),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '${_memberCount.clamp(1, 999)} member${_memberCount <= 1 ? '' : 's'}',
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Invite friends to join',
-                    style: TextStyle(color: Colors.grey[600], fontSize: 13),
-                  ),
-                ],
-              ),
-            ),
-            FilledButton.icon(
-              onPressed: () => SnackBarUtils.showInfo(context, 'Invite members coming soon!'),
-              icon: const Icon(Icons.person_add_outlined, size: 18),
-              label: const Text('Invite'),
-              style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              ),
-            ),
-          ],
+  Future<void> _openMembersScreen() async {
+    final result = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (context) => TripMembersScreen(
+          tripId: widget.tripId,
+          trip: _trip,
         ),
       ),
     );
+
+    // If user left or trip was deleted, pop back to trips list
+    if (result == true && mounted) {
+      Navigator.of(context).pop(true);
+    } else {
+      // Reload trip data in case members changed
+      _loadTrip();
+    }
+  }
+
+  Future<void> _inviteMember() async {
+    final result = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (context) => InviteMemberSheet(tripId: widget.tripId),
+    );
+
+    if (result == true) {
+      _loadTrip();
+    }
+  }
+
+  Widget _buildMembersPreview() {
+    final displayCount = _memberPreviews.isNotEmpty 
+        ? _memberPreviews.length.clamp(1, 4) 
+        : 1;
+    final hasMembers = _memberPreviews.isNotEmpty;
+    
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: InkWell(
+        onTap: _openMembersScreen,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.grey[50],
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey[200]!),
+          ),
+          child: Row(
+            children: [
+              // Member avatars
+              if (hasMembers)
+                SizedBox(
+                  width: (displayCount - 1) * 20.0 + 36,
+                  height: 36,
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: List.generate(
+                      displayCount,
+                      (i) {
+                        final preview = _memberPreviews[i];
+                        return Positioned(
+                          left: i * 20.0,
+                          child: _MemberAvatar(
+                            avatarUrl: preview.profile?.avatarUrl,
+                            displayName: preview.profile?.displayName,
+                            isOwner: preview.member.isOwner,
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                )
+              else
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.group_outlined,
+                    size: 20,
+                    color: Colors.grey[600],
+                  ),
+                ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${_memberCount.clamp(1, 999)} member${_memberCount <= 1 ? '' : 's'}',
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _memberCount <= 1
+                          ? 'Invite friends to join'
+                          : _getMemberNames(),
+                      style: TextStyle(color: Colors.grey[600], fontSize: 13),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+              if (_canEdit) ...[
+                const SizedBox(width: 8),
+                FilledButton.icon(
+                  onPressed: _inviteMember,
+                  icon: const Icon(Icons.person_add_outlined, size: 18),
+                  label: const Text('Invite'),
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  ),
+                ),
+              ] else
+                Icon(Icons.chevron_right, color: Colors.grey[400]),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _getMemberNames() {
+    if (_memberPreviews.isEmpty) return 'Invite friends to join';
+    
+    final names = _memberPreviews
+        .take(2)
+        .map((m) => m.profile?.displayName?.split(' ').first ?? 'Member')
+        .toList();
+    
+    if (_memberCount > 2) {
+      return '${names.join(', ')} +${_memberCount - 2} more';
+    }
+    return names.join(', ');
   }
 
   void _showStatusPicker() {
@@ -827,5 +930,61 @@ class _StatCard extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+class _MemberPreview {
+  final TripMember member;
+  final UserProfile? profile;
+
+  _MemberPreview({required this.member, this.profile});
+}
+
+class _MemberAvatar extends StatelessWidget {
+  final String? avatarUrl;
+  final String? displayName;
+  final bool isOwner;
+
+  const _MemberAvatar({
+    this.avatarUrl,
+    this.displayName,
+    this.isOwner = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: isOwner ? Colors.amber : Colors.white,
+          width: 2,
+        ),
+      ),
+      child: CircleAvatar(
+        radius: 16,
+        backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl!) : null,
+        backgroundColor: Colors.grey[300],
+        child: avatarUrl == null
+            ? Text(
+                _getInitials(displayName),
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              )
+            : null,
+      ),
+    );
+  }
+
+  String _getInitials(String? name) {
+    if (name == null || name.isEmpty) return '?';
+    final parts = name.trim().split(' ');
+    if (parts.length >= 2) {
+      return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+    }
+    return parts[0][0].toUpperCase();
   }
 }
