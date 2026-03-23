@@ -560,3 +560,80 @@ class MembersListSkeleton extends StatelessWidget {
     );
   }
 }
+
+class ExpenseItemSkeleton extends StatelessWidget {
+  const ExpenseItemSkeleton({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return ShimmerWrapper(
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.grey[200]!),
+        ),
+        child: Row(
+          children: [
+            SkeletonBox(width: 44, height: 44, borderRadius: 12),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SkeletonBox(width: 140, height: 15, borderRadius: 4),
+                  const SizedBox(height: 6),
+                  SkeletonBox(width: 80, height: 13, borderRadius: 4),
+                ],
+              ),
+            ),
+            SkeletonBox(width: 70, height: 15, borderRadius: 4),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class ExpenseListSkeleton extends StatelessWidget {
+  final int itemCount;
+
+  const ExpenseListSkeleton({super.key, this.itemCount = 5});
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomScrollView(
+      slivers: [
+        SliverToBoxAdapter(
+          child: ShimmerWrapper(
+            child: Container(
+              margin: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(20),
+              height: 160,
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+          ),
+        ),
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: ShimmerWrapper(
+              child: SkeletonBox(width: 120, height: 14, borderRadius: 4),
+            ),
+          ),
+        ),
+        SliverList(
+          delegate: SliverChildBuilderDelegate(
+            (context, index) => const ExpenseItemSkeleton(),
+            childCount: itemCount,
+          ),
+        ),
+      ],
+    );
+  }
+}
