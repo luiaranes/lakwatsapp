@@ -9,6 +9,9 @@ class TripService {
   final ActivityLogService _activityLogService = ActivityLogService();
 
   String? get _currentUserId => _supabase.auth.currentUser?.id;
+  
+  /// Public getter for current user ID
+  String? get currentUserId => _currentUserId;
 
   /// Fetch all trips for the current user (as owner or member)
   Future<List<Trip>> getMyTrips() async {

@@ -4,15 +4,19 @@ import 'package:larga/models/trip.dart';
 import 'package:larga/models/trip_member.dart';
 import 'package:larga/models/user_profile.dart';
 import 'package:larga/models/itinerary_item.dart';
+import 'package:larga/models/expense.dart';
 import 'package:larga/services/trip_service.dart';
 import 'package:larga/services/storage_service.dart';
 import 'package:larga/services/profile_service.dart';
 import 'package:larga/services/itinerary_service.dart';
+import 'package:larga/services/expense_service.dart';
+import 'package:larga/services/currency_service.dart';
 import 'package:larga/utils/snackbar_utils.dart';
 import 'package:larga/screens/edit_trip_screen.dart';
 import 'package:larga/screens/trip_members_screen.dart';
 import 'package:larga/screens/invite_member_sheet.dart';
 import 'package:larga/screens/itinerary_screen.dart';
+import 'package:larga/screens/expenses_screen.dart';
 import 'package:larga/widgets/activity_log_list.dart';
 import 'package:larga/widgets/skeleton_widgets.dart';
 
@@ -35,6 +39,8 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   final _storageService = StorageService();
   final _profileService = ProfileService();
   final _itineraryService = ItineraryService();
+  final _expenseService = ExpenseService();
+  final _currencyService = CurrencyService();
 
   Trip? _trip;
   bool _isLoading = true;
@@ -43,8 +49,14 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   bool _hasChanges = false;
   int _memberCount = 1;
   int _itineraryCount = 0;
+  int _expenseCount = 0;
+  double _totalExpenses = 0;
   List<ItineraryItem> _recentItineraryItems = [];
+  List<Expense> _recentExpenses = [];
   List<_MemberPreview> _memberPreviews = [];
+  Map<String, UserProfile> _expensePayerProfiles = {};
+  Map<String, double>? _exchangeRates;
+  double? _convertedTotalExpenses;
 
   @override
   void initState() {
@@ -61,17 +73,25 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
         _tripService.isOwner(widget.tripId),
         _tripService.getTripMembers(widget.tripId),
         _itineraryService.getItineraryItems(widget.tripId),
+        _expenseService.getExpenses(widget.tripId),
       ]);
 
       if (!mounted) return;
 
       final members = results[3] as List<TripMember>;
       final itineraryItems = results[4] as List<ItineraryItem>;
+      final expenses = results[5] as List<Expense>;
 
       // Load member profiles for preview (up to 4)
       final previewMembers = members.take(4).toList();
-      final authIds = previewMembers.map((m) => m.userId).toList();
-      final profiles = await _profileService.getProfilesByAuthIds(authIds);
+      final memberAuthIds = previewMembers.map((m) => m.userId).toList();
+      
+      // Load expense payer profiles
+      final expensePayerIds = expenses.map((e) => e.paidByUserId).toSet().toList();
+      
+      // Combine and dedupe auth IDs
+      final allAuthIds = {...memberAuthIds, ...expensePayerIds}.toList();
+      final profiles = await _profileService.getProfilesByAuthIds(allAuthIds);
       final profileMap = {for (var p in profiles) p.authId: p};
 
       var memberPreviews = previewMembers.map((m) {
@@ -95,13 +115,60 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
         _memberCount = members.length;
         _itineraryCount = itineraryItems.length;
         _recentItineraryItems = itineraryItems.take(3).toList();
+        _expenseCount = expenses.length;
+        _totalExpenses = expenses.fold(0.0, (sum, e) => sum + e.amount);
+        _recentExpenses = expenses.take(3).toList();
         _memberPreviews = memberPreviews;
+        _expensePayerProfiles = profileMap;
         _isLoading = false;
       });
+
+      // Load exchange rates if there are expenses in different currencies
+      _loadExchangeRates(expenses);
     } catch (e) {
       if (!mounted) return;
       setState(() => _isLoading = false);
       SnackBarUtils.showError(context, 'Failed to load trip');
+    }
+  }
+
+  Future<void> _loadExchangeRates(List<Expense> expenses) async {
+    final tripCurrency = _trip?.currency ?? 'PHP';
+    final currencies = expenses.map((e) => e.currency).toSet();
+    
+    // Only load rates if there are expenses in other currencies
+    final hasDifferentCurrency = currencies.any((c) => c != tripCurrency);
+    if (!hasDifferentCurrency) {
+      // All expenses in trip currency, converted total equals raw total
+      setState(() {
+        _convertedTotalExpenses = _totalExpenses;
+      });
+      return;
+    }
+
+    try {
+      final rates = await _currencyService.getExchangeRates(tripCurrency);
+      if (rates != null && mounted) {
+        // Calculate converted total
+        double convertedTotal = 0;
+        for (final expense in expenses) {
+          if (expense.currency == tripCurrency) {
+            convertedTotal += expense.amount;
+          } else {
+            final rate = rates[expense.currency];
+            if (rate != null && rate > 0) {
+              convertedTotal += expense.amount / rate;
+            }
+          }
+        }
+        
+        setState(() {
+          _exchangeRates = rates;
+          _convertedTotalExpenses = convertedTotal;
+        });
+      }
+    } catch (e) {
+      // Silently fail - conversion is optional
     }
   }
 
@@ -242,6 +309,17 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
       'KRW' => '₩',
       _ => currency,
     };
+  }
+
+  String _formatExpenseTotal() {
+    // Use converted total if available, otherwise use raw total
+    final total = _convertedTotalExpenses ?? _totalExpenses;
+    if (total == 0) return '${_getCurrencySymbol(_trip?.currency ?? 'PHP')}0';
+    final formatter = NumberFormat.compactCurrency(
+      symbol: _getCurrencySymbol(_trip?.currency ?? 'PHP'),
+      decimalDigits: 0,
+    );
+    return formatter.format(total);
   }
 
   @override
@@ -493,8 +571,9 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
                       _StatCard(
                         icon: Icons.receipt_long_outlined,
                         label: 'Expenses',
-                        value: '₱0',
+                        value: _isLoading ? '-' : _formatExpenseTotal(),
                         color: Colors.orange,
+                        isLoading: _isLoading,
                       ),
                     ],
                   ),
@@ -507,12 +586,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
                 _buildItinerarySection(),
 
                 _buildSectionHeader(context, 'Expenses', Icons.receipt_outlined),
-                _buildPlaceholderCard(
-                  'No expenses yet',
-                  'Track your trip spending',
-                  Icons.add_card,
-                  onTap: () => SnackBarUtils.showInfo(context, 'Expense tracking coming soon!'),
-                ),
+                _buildExpensesSection(),
 
                 _buildSectionHeader(context, 'Members', Icons.group_outlined),
                 _buildMembersPreview(),
@@ -606,64 +680,22 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
     );
   }
 
-  Widget _buildPlaceholderCard(String title, String subtitle, IconData icon, {VoidCallback? onTap}) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: Colors.grey[50],
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.grey[200]!),
-          ),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.grey[200],
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(icon, color: Colors.grey[600]),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 15,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      subtitle,
-                      style: TextStyle(
-                        color: Colors.grey[600],
-                        fontSize: 13,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Icon(Icons.chevron_right, color: Colors.grey[400]),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   Future<void> _openItinerary() async {
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => ItineraryScreen(
+          tripId: widget.tripId,
+          trip: _trip,
+        ),
+      ),
+    );
+    _loadTrip();
+  }
+
+  Future<void> _openExpenses() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => ExpensesScreen(
           tripId: widget.tripId,
           trip: _trip,
         ),
@@ -814,6 +846,176 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
                   children: [
                     Text(
                       'View all $_itineraryCount activities',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Icon(
+                      Icons.arrow_forward,
+                      size: 16,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildExpensesSection() {
+    if (_isLoading) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.grey[50],
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey[200]!),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey[200],
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const SizedBox(width: 24, height: 24),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 120,
+                      height: 14,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      width: 180,
+                      height: 12,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[200],
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (_expenseCount == 0) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: InkWell(
+          onTap: _openExpenses,
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.grey[50],
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey[200]!),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(Icons.add_card_outlined, color: Colors.orange[600]),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'No expenses yet',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 15,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Track your trip spending',
+                        style: TextStyle(
+                          color: Colors.grey[600],
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right, color: Colors.grey[400]),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: InkWell(
+        onTap: _openExpenses,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.grey[50],
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey[200]!),
+          ),
+          child: Column(
+            children: [
+              // Preview items
+              ...List.generate(
+                _recentExpenses.length,
+                (index) {
+                  final expense = _recentExpenses[index];
+                  final payerProfile = _expensePayerProfiles[expense.paidByUserId];
+                  return Padding(
+                    padding: EdgeInsets.only(
+                      bottom: index < _recentExpenses.length - 1 ? 12 : 0,
+                    ),
+                    child: _ExpenseItemPreview(
+                      expense: expense,
+                      payerProfile: payerProfile,
+                      currentUserId: _tripService.currentUserId,
+                      tripCurrency: _trip?.currency ?? 'PHP',
+                      exchangeRates: _exchangeRates,
+                    ),
+                  );
+                },
+              ),
+              if (_expenseCount > 3) ...[
+                const SizedBox(height: 12),
+                const Divider(height: 1),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      'View all $_expenseCount expenses',
                       style: TextStyle(
                         color: Theme.of(context).colorScheme.primary,
                         fontWeight: FontWeight.w600,
@@ -1370,6 +1572,152 @@ class _ItineraryItemPreview extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ExpenseItemPreview extends StatelessWidget {
+  final Expense expense;
+  final UserProfile? payerProfile;
+  final String? currentUserId;
+  final String tripCurrency;
+  final Map<String, double>? exchangeRates;
+
+  const _ExpenseItemPreview({
+    required this.expense,
+    this.payerProfile,
+    this.currentUserId,
+    required this.tripCurrency,
+    this.exchangeRates,
+  });
+
+  Color _getCategoryColor() {
+    return switch (expense.category) {
+      ExpenseCategory.transport => Colors.blue,
+      ExpenseCategory.accommodation => Colors.purple,
+      ExpenseCategory.food => Colors.orange,
+      ExpenseCategory.activities => Colors.teal,
+      ExpenseCategory.shopping => Colors.pink,
+      ExpenseCategory.fees => Colors.indigo,
+      ExpenseCategory.tips => Colors.green,
+      ExpenseCategory.other => Colors.grey,
+    };
+  }
+
+  String _formatCurrency(double amount, String currency) {
+    final symbol = switch (currency) {
+      'PHP' => '₱',
+      'USD' => '\$',
+      'EUR' => '€',
+      'JPY' => '¥',
+      'SGD' => 'S\$',
+      'THB' => '฿',
+      'KRW' => '₩',
+      _ => currency,
+    };
+    final formatter = NumberFormat.currency(symbol: symbol, decimalDigits: 2);
+    return formatter.format(amount);
+  }
+
+  String _getPayerText() {
+    if (expense.paidByUserId == currentUserId) {
+      return 'You paid';
+    }
+    final firstName = payerProfile?.displayName?.split(' ').first ?? 'Someone';
+    return '$firstName paid';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _getCategoryColor();
+
+    return Row(
+      children: [
+        Container(
+          width: 4,
+          height: 40,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Text(
+          expense.category.icon,
+          style: const TextStyle(fontSize: 20),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                expense.description,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              Row(
+                children: [
+                  Text(
+                    expense.category.displayName,
+                    style: TextStyle(
+                      color: Colors.grey[600],
+                      fontSize: 12,
+                    ),
+                  ),
+                  Text(
+                    ' • ',
+                    style: TextStyle(color: Colors.grey[400]),
+                  ),
+                  Flexible(
+                    child: Text(
+                      _getPayerText(),
+                      style: TextStyle(
+                        color: Colors.grey[600],
+                        fontSize: 12,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Text(
+              _formatCurrency(expense.amount, expense.currency),
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+              ),
+            ),
+            // Show converted amount if expense is in different currency
+            if (expense.currency != tripCurrency &&
+                exchangeRates != null &&
+                exchangeRates!.containsKey(expense.currency))
+              Builder(builder: (context) {
+                final rate = exchangeRates![expense.currency]!;
+                final convertedAmount = rate > 0 ? expense.amount / rate : 0.0;
+                return Text(
+                  '≈ ${_formatCurrency(convertedAmount, tripCurrency)}',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.primary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                  ),
+                );
+              }),
+          ],
         ),
       ],
     );

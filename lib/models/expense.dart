@@ -69,6 +69,7 @@ class Expense {
   final DateTime expenseDate;
   final String? receiptUrl;
   final String? notes;
+  final String? itineraryItemId;
   final bool isSettled;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -84,6 +85,7 @@ class Expense {
     required this.expenseDate,
     this.receiptUrl,
     this.notes,
+    this.itineraryItemId,
     this.isSettled = false,
     required this.createdAt,
     required this.updatedAt,
@@ -102,6 +104,7 @@ class Expense {
       expenseDate: DateTime.parse(json['expense_date'] as String),
       receiptUrl: json['receipt_url'] as String?,
       notes: json['notes'] as String?,
+      itineraryItemId: json['itinerary_item_id'] as String?,
       isSettled: json['is_settled'] as bool? ?? false,
       createdAt: DateTime.parse(json['created_at'] as String),
       updatedAt: DateTime.parse(json['updated_at'] as String),
@@ -120,6 +123,7 @@ class Expense {
       'expense_date': expenseDate.toIso8601String().split('T').first,
       'receipt_url': receiptUrl,
       'notes': notes,
+      'itinerary_item_id': itineraryItemId,
       'is_settled': isSettled,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
@@ -137,6 +141,7 @@ class Expense {
       'expense_date': expenseDate.toIso8601String().split('T').first,
       'receipt_url': receiptUrl,
       'notes': notes,
+      'itinerary_item_id': itineraryItemId,
       'is_settled': isSettled,
     };
   }
@@ -152,6 +157,7 @@ class Expense {
     DateTime? expenseDate,
     String? receiptUrl,
     String? notes,
+    String? itineraryItemId,
     bool? isSettled,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -167,6 +173,7 @@ class Expense {
       expenseDate: expenseDate ?? this.expenseDate,
       receiptUrl: receiptUrl ?? this.receiptUrl,
       notes: notes ?? this.notes,
+      itineraryItemId: itineraryItemId ?? this.itineraryItemId,
       isSettled: isSettled ?? this.isSettled,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,

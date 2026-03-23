@@ -380,7 +380,23 @@ class _ActivityLogItem extends StatelessWidget {
       }
     }
     
-    // Show category for created items
+    // Show amount and category for created expenses
+    if (log.action == ActivityAction.created && log.entityType == ActivityEntityType.expense) {
+      final amount = log.details['amount'];
+      final currency = log.details['currency'] as String? ?? 'PHP';
+      final category = log.details['category'] as String?;
+      
+      if (amount != null) {
+        final symbol = _getCurrencySymbol(currency);
+        final amountStr = '$symbol${(amount as num).toStringAsFixed(2)}';
+        if (category != null) {
+          return '$amountStr • ${_formatFieldName(category)}';
+        }
+        return amountStr;
+      }
+    }
+    
+    // Show category for other created items
     if (log.action == ActivityAction.created && log.details['category'] != null) {
       return 'Category: ${_formatFieldName(log.details['category'] as String)}';
     }
@@ -393,7 +409,26 @@ class _ActivityLogItem extends StatelessWidget {
     return null;
   }
 
+  String _getCurrencySymbol(String currency) {
+    return switch (currency) {
+      'PHP' => '₱',
+      'USD' => '\$',
+      'EUR' => '€',
+      'JPY' => '¥',
+      'SGD' => 'S\$',
+      'THB' => '฿',
+      'KRW' => '₩',
+      _ => currency,
+    };
+  }
+
   String _formatFieldName(String field) {
+    // Handle special field names
+    if (field == 'paid_by_user_id') return 'Payer';
+    if (field == 'expense_date') return 'Date';
+    if (field == 'is_settled') return 'Settled';
+    if (field == 'itinerary_item_id') return 'Linked Itinerary';
+    
     // Convert snake_case to readable format
     return field
         .replaceAll('_', ' ')
@@ -831,6 +866,11 @@ class _ChangeItem extends StatelessWidget {
     if (field == 'end_time') return 'End Time';
     if (field == 'day_number') return 'Day';
     if (field == 'sort_order') return 'Order';
+    if (field == 'expense_date') return 'Date';
+    if (field == 'is_settled') return 'Settled';
+    if (field == 'receipt_url') return 'Receipt';
+    if (field == 'paid_by_user_id') return 'Paid By';
+    if (field == 'itinerary_item_id') return 'Linked Itinerary';
     
     return field
         .replaceAll('_url', '')
@@ -844,14 +884,23 @@ class _ChangeItem extends StatelessWidget {
   String _formatValue(dynamic value) {
     if (value == null) return 'Not set';
     if (value is bool) return value ? 'Yes' : 'No';
-    if (value is double) {
-      // Format as currency if it looks like a budget
-      if (field.contains('budget') || field.contains('cost')) {
-        return '₱${value.toStringAsFixed(0)}';
+    if (value is num) {
+      // Format as currency if it looks like a budget or amount
+      if (field.contains('budget') || field.contains('cost') || field == 'amount') {
+        return '₱${value.toStringAsFixed(2)}';
       }
-      return value.toStringAsFixed(2);
+      if (value is double) return value.toStringAsFixed(2);
+      return value.toString();
     }
     if (value is String && value.isEmpty) return 'Not set';
+    
+    // Handle UUID fields (user IDs) - show as "Changed" since we can't resolve names here
+    if (value is String && RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', caseSensitive: false).hasMatch(value)) {
+      if (field.contains('user_id') || field.contains('owner_id')) {
+        return 'Another member';
+      }
+      return value.substring(0, 8) + '...';
+    }
     
     // Handle URL fields (cover photos, avatars, etc.) - don't show raw URLs
     if (value is String && (value.startsWith('http://') || value.startsWith('https://'))) {
