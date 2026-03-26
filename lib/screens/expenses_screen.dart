@@ -3,15 +3,18 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:larga/models/trip.dart';
 import 'package:larga/models/expense.dart';
+import 'package:larga/models/expense_split.dart';
 import 'package:larga/models/user_profile.dart';
 import 'package:larga/models/itinerary_item.dart';
 import 'package:larga/services/expense_service.dart';
+import 'package:larga/services/expense_split_service.dart';
 import 'package:larga/services/trip_service.dart';
 import 'package:larga/services/profile_service.dart';
 import 'package:larga/services/itinerary_service.dart';
 import 'package:larga/services/currency_service.dart';
 import 'package:larga/utils/snackbar_utils.dart';
 import 'package:larga/screens/add_edit_expense_screen.dart';
+import 'package:larga/screens/expense_balances_screen.dart';
 import 'package:larga/widgets/skeleton_widgets.dart';
 
 class ExpensesScreen extends StatefulWidget {
@@ -30,6 +33,7 @@ class ExpensesScreen extends StatefulWidget {
 
 class _ExpensesScreenState extends State<ExpensesScreen> {
   final _expenseService = ExpenseService();
+  final _expenseSplitService = ExpenseSplitService();
   final _tripService = TripService();
   final _profileService = ProfileService();
   final _itineraryService = ItineraryService();
@@ -39,6 +43,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
   List<Expense> _expenses = [];
   Map<String, UserProfile> _userProfiles = {};
   Map<String, ItineraryItem> _itineraryItems = {};
+  Map<String, List<ExpenseSplit>> _expenseSplits = {};
   Map<String, double>? _exchangeRates;
   double? _convertedTotal;
   bool _isLoading = true;
@@ -76,6 +81,13 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
       // Create a map of itinerary items
       final itineraryMap = {for (var item in itineraryItems) item.id: item};
 
+      // Load expense splits
+      final allSplits = await _expenseSplitService.getSplitsForTrip(widget.tripId);
+      final splitsMap = <String, List<ExpenseSplit>>{};
+      for (final split in allSplits) {
+        splitsMap.putIfAbsent(split.expenseId, () => []).add(split);
+      }
+
       if (!mounted) return;
 
       setState(() {
@@ -84,6 +96,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
         _expenses = expenses;
         _userProfiles = profileMap;
         _itineraryItems = itineraryMap;
+        _expenseSplits = splitsMap;
         _isLoading = false;
       });
 
@@ -267,6 +280,14 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(_trip?.title ?? 'Expenses'),
+        actions: [
+          if (_expenses.isNotEmpty)
+            IconButton(
+              icon: const Icon(Icons.account_balance_wallet_outlined),
+              tooltip: 'View Balances',
+              onPressed: _openBalances,
+            ),
+        ],
       ),
       body: _expenses.isEmpty ? _buildEmptyState() : _buildExpensesList(),
       floatingActionButton: _canEdit
@@ -276,6 +297,17 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
               label: const Text('Add Expense'),
             )
           : null,
+    );
+  }
+
+  void _openBalances() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => ExpenseBalancesScreen(
+          tripId: widget.tripId,
+          trip: _trip,
+        ),
+      ),
     );
   }
 
@@ -875,6 +907,12 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                             ],
                           ),
                         ),
+                      // Show split info
+                      if (_expenseSplits[expense.id] != null && _expenseSplits[expense.id]!.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: _buildSplitInfo(expense, _expenseSplits[expense.id]!),
+                        ),
                     ],
                   ),
                 ),
@@ -957,6 +995,71 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildSplitInfo(Expense expense, List<ExpenseSplit> splits) {
+    final splitCount = splits.length;
+    final settledCount = splits.where((s) => s.isSettled).length;
+    final allSettled = settledCount == splitCount;
+    final currentUserId = _tripService.currentUserId;
+    final tripCurrency = _trip?.currency ?? 'PHP';
+    
+    final userSplit = splits.where((s) => s.userId == currentUserId).firstOrNull;
+    final owesAmount = userSplit != null && !userSplit.isSettled && userSplit.userId != expense.paidByUserId
+        ? userSplit.amount
+        : null;
+
+    double? convertedOwesAmount;
+    if (owesAmount != null && expense.currency != tripCurrency && _exchangeRates != null) {
+      final rate = _exchangeRates![expense.currency];
+      if (rate != null && rate > 0) {
+        convertedOwesAmount = owesAmount / rate;
+      }
+    }
+
+    return Row(
+      children: [
+        Icon(
+          allSettled ? Icons.check_circle : Icons.people_outline,
+          size: 12,
+          color: allSettled ? Colors.green : Colors.orange[700],
+        ),
+        const SizedBox(width: 4),
+        Text(
+          allSettled
+              ? 'Split settled'
+              : 'Split $splitCount ways',
+          style: TextStyle(
+            fontSize: 12,
+            color: allSettled ? Colors.green : Colors.orange[700],
+          ),
+        ),
+        if (owesAmount != null) ...[
+          Text(
+            ' • ',
+            style: TextStyle(color: Colors.grey[400], fontSize: 12),
+          ),
+          if (convertedOwesAmount != null)
+            Text(
+              'You owe ≈${_formatCurrency(convertedOwesAmount, tripCurrency)}',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.red[700],
+                fontWeight: FontWeight.w500,
+              ),
+            )
+          else
+            Text(
+              'You owe ${_formatCurrency(owesAmount, expense.currency)}',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.red[700],
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+        ],
+      ],
     );
   }
 

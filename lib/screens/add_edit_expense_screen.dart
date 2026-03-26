@@ -2,12 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:larga/models/trip.dart';
 import 'package:larga/models/expense.dart';
+import 'package:larga/models/expense_split.dart';
 import 'package:larga/models/itinerary_item.dart';
 import 'package:larga/services/expense_service.dart';
+import 'package:larga/services/expense_split_service.dart';
 import 'package:larga/services/trip_service.dart';
 import 'package:larga/services/profile_service.dart';
 import 'package:larga/services/itinerary_service.dart';
 import 'package:larga/utils/snackbar_utils.dart';
+import 'package:larga/widgets/expense_split_selector.dart';
 
 class AddEditExpenseScreen extends StatefulWidget {
   final String tripId;
@@ -28,6 +31,7 @@ class AddEditExpenseScreen extends StatefulWidget {
 class _AddEditExpenseScreenState extends State<AddEditExpenseScreen> {
   final _formKey = GlobalKey<FormState>();
   final _expenseService = ExpenseService();
+  final _expenseSplitService = ExpenseSplitService();
   final _tripService = TripService();
   final _profileService = ProfileService();
   final _itineraryService = ItineraryService();
@@ -44,8 +48,11 @@ class _AddEditExpenseScreenState extends State<AddEditExpenseScreen> {
   bool _isSaving = false;
   bool _isLoadingMembers = true;
   bool _isLoadingItinerary = true;
+  bool _isLoadingSplits = true;
   List<_MemberOption> _memberOptions = [];
   List<ItineraryItem> _itineraryItems = [];
+  ExpenseSplitData? _splitData;
+  List<ExpenseSplit>? _existingSplits;
 
   bool get _isEditing => widget.existingExpense != null;
 
@@ -68,6 +75,48 @@ class _AddEditExpenseScreenState extends State<AddEditExpenseScreen> {
 
     _loadMembers();
     _loadItineraryItems();
+    _loadExistingSplits();
+  }
+
+  Future<void> _loadExistingSplits() async {
+    if (!_isEditing) {
+      setState(() => _isLoadingSplits = false);
+      return;
+    }
+
+    try {
+      final splits = await _expenseSplitService.getSplitsForExpense(widget.existingExpense!.id);
+      if (!mounted) return;
+
+      if (splits.isNotEmpty) {
+        final splitType = splits.first.splitType;
+        final memberIds = splits.map((s) => s.userId).toList();
+        Map<String, double>? percentages;
+        Map<String, double>? amounts;
+
+        if (splitType == SplitType.percentage) {
+          percentages = {for (var s in splits) s.userId: s.percentage ?? 0};
+        } else if (splitType == SplitType.exact) {
+          amounts = {for (var s in splits) s.userId: s.amount};
+        }
+
+        setState(() {
+          _existingSplits = splits;
+          _splitData = ExpenseSplitData(
+            splitType: splitType,
+            memberIds: memberIds,
+            percentages: percentages,
+            amounts: amounts,
+          );
+          _isLoadingSplits = false;
+        });
+      } else {
+        setState(() => _isLoadingSplits = false);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoadingSplits = false);
+    }
   }
 
   Future<void> _loadMembers() async {
@@ -192,6 +241,8 @@ class _AddEditExpenseScreenState extends State<AddEditExpenseScreen> {
               : null,
           clearItineraryItem: _selectedItineraryItemId == null && original.itineraryItemId != null,
         );
+
+        await _saveSplits(result.id, amount);
       } else {
         result = await _expenseService.createExpense(
           tripId: widget.tripId,
@@ -206,6 +257,8 @@ class _AddEditExpenseScreenState extends State<AddEditExpenseScreen> {
               : null,
           itineraryItemId: _selectedItineraryItemId,
         );
+
+        await _saveSplits(result.id, amount);
       }
 
       if (!mounted) return;
@@ -219,6 +272,24 @@ class _AddEditExpenseScreenState extends State<AddEditExpenseScreen> {
       setState(() => _isSaving = false);
       SnackBarUtils.showError(context, 'Failed to save expense');
     }
+  }
+
+  Future<void> _saveSplits(String expenseId, double amount) async {
+    if (_splitData == null) {
+      if (_existingSplits != null && _existingSplits!.isNotEmpty) {
+        await _expenseSplitService.deleteSplitsForExpense(expenseId);
+      }
+      return;
+    }
+
+    await _expenseSplitService.updateSplits(
+      expenseId: expenseId,
+      totalAmount: amount,
+      splitType: _splitData!.splitType,
+      memberIds: _splitData!.memberIds,
+      memberPercentages: _splitData!.percentages,
+      memberAmounts: _splitData!.amounts,
+    );
   }
 
   bool _isSameDate(DateTime a, DateTime b) {
@@ -452,7 +523,13 @@ class _AddEditExpenseScreenState extends State<AddEditExpenseScreen> {
               textCapitalization: TextCapitalization.sentences,
               maxLines: 3,
             ),
-            const SizedBox(height: 32),
+            const SizedBox(height: 24),
+
+            // Expense Split
+            if (!_isLoadingMembers && !_isLoadingSplits) ...[
+              _buildSplitSection(),
+              const SizedBox(height: 24),
+            ],
 
             // Save button
             FilledButton.icon(
@@ -825,6 +902,30 @@ class _AddEditExpenseScreenState extends State<AddEditExpenseScreen> {
       return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
     }
     return parts.isNotEmpty ? parts[0][0].toUpperCase() : '?';
+  }
+
+  Widget _buildSplitSection() {
+    final amount = double.tryParse(_amountController.text.trim().replaceAll(',', '')) ?? 0;
+
+    final splitMembers = _memberOptions.map((m) => SplitMember(
+      userId: m.userId,
+      displayName: m.displayName,
+      avatarUrl: m.avatarUrl,
+      isCurrentUser: m.isCurrentUser,
+    )).toList();
+
+    return ExpenseSplitSelector(
+      members: splitMembers,
+      totalAmount: amount,
+      currency: _selectedCurrency,
+      paidByUserId: _selectedPayerId,
+      initialData: _splitData,
+      onChanged: (data) {
+        setState(() {
+          _splitData = data;
+        });
+      },
+    );
   }
 }
 

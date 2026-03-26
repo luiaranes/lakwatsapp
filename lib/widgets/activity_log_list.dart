@@ -90,6 +90,7 @@ class _ActivityLogListState extends State<ActivityLogList> {
       ActivityAction.invited => Icons.send_outlined,
       ActivityAction.removed => Icons.person_off_outlined,
       ActivityAction.reordered => Icons.swap_vert,
+      ActivityAction.settled => Icons.check_circle_outline,
       ActivityAction.other => Icons.info_outline,
     };
   }
@@ -104,6 +105,7 @@ class _ActivityLogListState extends State<ActivityLogList> {
       ActivityAction.invited => Colors.purple,
       ActivityAction.removed => Colors.red,
       ActivityAction.reordered => Colors.indigo,
+      ActivityAction.settled => Colors.green,
       ActivityAction.other => Colors.grey,
     };
   }
@@ -225,6 +227,10 @@ class _ActivityLogItem extends StatelessWidget {
 
   bool get _isTappable {
     // Allow tapping for update actions (they may have details)
+    // Also allow tapping for expense splits to show split details
+    if (log.entityType == ActivityEntityType.expenseSplit) {
+      return true;
+    }
     return log.action == ActivityAction.updated;
   }
 
@@ -353,6 +359,22 @@ class _ActivityLogItem extends StatelessWidget {
   String _getActionText() {
     final target = log.itemTitle ?? log.itemName;
 
+    if (log.entityType == ActivityEntityType.expenseSplit) {
+      final memberCount = log.details['member_count'] ?? 0;
+      final fromName = log.details['from_user_name'] as String? ?? 'Someone';
+      final toName = log.details['to_user_name'] as String? ?? 'someone';
+      
+      return switch (log.action) {
+        ActivityAction.created => memberCount > 0 
+            ? 'split "$target" among $memberCount members'
+            : 'split "$target"',
+        ActivityAction.updated => 'updated split for "$target"',
+        ActivityAction.deleted => 'removed split for "$target"',
+        ActivityAction.settled => 'settled debt: $fromName paid $toName',
+        _ => 'modified split',
+      };
+    }
+
     return switch (log.action) {
       ActivityAction.created => target != null ? 'added "$target"' : 'added an item',
       ActivityAction.updated => target != null ? 'updated "$target"' : 'made changes',
@@ -362,6 +384,7 @@ class _ActivityLogItem extends StatelessWidget {
       ActivityAction.invited => _getInviteText(),
       ActivityAction.removed => 'removed ${log.targetUserName ?? "a member"}',
       ActivityAction.reordered => 'reordered Day ${log.details['day_number'] ?? ''} activities',
+      ActivityAction.settled => target != null ? 'settled "$target"' : 'settled a debt',
       ActivityAction.other => 'made changes',
     };
   }
@@ -377,6 +400,37 @@ class _ActivityLogItem extends StatelessWidget {
         return 'Changed: ${formatted[0]} and ${formatted[1]}';
       } else {
         return 'Changed: ${formatted.take(2).join(", ")} +${formatted.length - 2} more';
+      }
+    }
+    
+    // Show details for expense splits
+    if (log.entityType == ActivityEntityType.expenseSplit) {
+      final amount = log.details['expense_amount'];
+      final currency = log.details['currency'] as String? ?? 'PHP';
+      final splitType = log.details['split_type'] as String?;
+      final memberCount = log.details['member_count'];
+      final memberNames = log.details['member_names'] as List?;
+      
+      if (log.action == ActivityAction.settled) {
+        return 'Debt marked as paid';
+      }
+      
+      if (amount != null) {
+        final symbol = _getCurrencySymbol(currency);
+        final amountStr = '$symbol${(amount as num).toStringAsFixed(2)}';
+        final splitTypeStr = splitType != null ? _formatFieldName(splitType) : 'Equal';
+        
+        if (memberNames != null && memberNames.isNotEmpty) {
+          final names = memberNames.take(3).join(', ');
+          final extra = memberNames.length > 3 ? ' +${memberNames.length - 3} more' : '';
+          return '$amountStr • $splitTypeStr split • $names$extra';
+        }
+        
+        if (memberCount != null && memberCount > 0) {
+          return '$amountStr • $splitTypeStr split among $memberCount members';
+        }
+        
+        return '$amountStr • $splitTypeStr split';
       }
     }
     
@@ -579,6 +633,7 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
       ActivityAction.invited => Icons.send_outlined,
       ActivityAction.removed => Icons.person_off_outlined,
       ActivityAction.reordered => Icons.swap_vert,
+      ActivityAction.settled => Icons.check_circle_outline,
       ActivityAction.other => Icons.info_outline,
     };
   }
@@ -593,6 +648,7 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
       ActivityAction.invited => Colors.purple,
       ActivityAction.removed => Colors.red,
       ActivityAction.reordered => Colors.indigo,
+      ActivityAction.settled => Colors.green,
       ActivityAction.other => Colors.grey,
     };
   }
@@ -737,6 +793,206 @@ class _ActivityDetailSheet extends StatelessWidget {
     );
   }
 
+  Widget _buildExpenseSplitDetails(ScrollController scrollController) {
+    final details = log.details;
+    final title = details['title'] as String? ?? 'Expense';
+    final amount = details['expense_amount'] as num?;
+    final currency = details['currency'] as String? ?? 'PHP';
+    final splitType = details['split_type'] as String?;
+    final memberCount = details['member_count'] as int?;
+    final memberNames = details['member_names'] as List?;
+    final fromName = details['from_user_name'] as String?;
+    final toName = details['to_user_name'] as String?;
+
+    String getCurrencySymbol(String curr) {
+      return switch (curr) {
+        'PHP' => '₱',
+        'USD' => '\$',
+        'EUR' => '€',
+        'JPY' => '¥',
+        'SGD' => 'S\$',
+        'THB' => '฿',
+        'KRW' => '₩',
+        _ => curr,
+      };
+    }
+
+    return ListView(
+      controller: scrollController,
+      padding: const EdgeInsets.all(20),
+      children: [
+        // Action type badge
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: Colors.green.withAlpha(25),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                log.action == ActivityAction.settled
+                    ? Icons.check_circle
+                    : log.action == ActivityAction.created
+                        ? Icons.call_split
+                        : Icons.edit,
+                size: 16,
+                color: Colors.green[700],
+              ),
+              const SizedBox(width: 6),
+              Text(
+                log.action == ActivityAction.settled
+                    ? 'Debt Settled'
+                    : log.action == ActivityAction.created
+                        ? 'Split Created'
+                        : 'Split Updated',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.green[700],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+
+        // Settlement details
+        if (log.action == ActivityAction.settled) ...[
+          _buildDetailRow(
+            icon: Icons.person_outline,
+            label: 'Paid by',
+            value: fromName ?? 'Unknown',
+          ),
+          const SizedBox(height: 12),
+          _buildDetailRow(
+            icon: Icons.person,
+            label: 'Received by',
+            value: toName ?? 'Unknown',
+          ),
+          const SizedBox(height: 12),
+          _buildDetailRow(
+            icon: Icons.receipt_outlined,
+            label: 'Related to',
+            value: title,
+          ),
+        ],
+
+        // Split details (for non-settled actions)
+        if (log.action != ActivityAction.settled) ...[
+          _buildDetailRow(
+            icon: Icons.receipt_outlined,
+            label: 'Expense',
+            value: title,
+          ),
+          const SizedBox(height: 12),
+          if (amount != null)
+            _buildDetailRow(
+              icon: Icons.payments_outlined,
+              label: 'Total Amount',
+              value: '${getCurrencySymbol(currency)}${amount.toStringAsFixed(2)}',
+            ),
+          const SizedBox(height: 12),
+          if (splitType != null)
+            _buildDetailRow(
+              icon: Icons.pie_chart_outline,
+              label: 'Split Type',
+              value: _formatFieldName(splitType),
+            ),
+          const SizedBox(height: 12),
+          if (memberCount != null)
+            _buildDetailRow(
+              icon: Icons.group_outlined,
+              label: 'Split Among',
+              value: '$memberCount ${memberCount == 1 ? 'member' : 'members'}',
+            ),
+          if (memberNames != null && memberNames.isNotEmpty) ...[
+            const SizedBox(height: 20),
+            Text(
+              'Members',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey[700],
+              ),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: memberNames.map((name) {
+                return Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[100],
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.grey[300]!),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.person, size: 14, color: Colors.grey[600]),
+                      const SizedBox(width: 6),
+                      Text(
+                        name.toString(),
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey[800],
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
+            ),
+          ],
+        ],
+      ],
+    );
+  }
+
+  Widget _buildDetailRow({
+    required IconData icon,
+    required String label,
+    required String value,
+  }) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: Colors.grey[100],
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(icon, size: 18, color: Colors.grey[600]),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey[500],
+                ),
+              ),
+              Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   String _formatFieldName(String field) {
     return field
         .replaceAll('_', ' ')
@@ -817,23 +1073,25 @@ class _ActivityDetailSheet extends StatelessWidget {
               const Divider(height: 1),
               // Changes list
               Expanded(
-                child: changes.isEmpty
-                    ? _buildNoDetailsView()
-                    : ListView.separated(
-                        controller: scrollController,
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                        itemCount: changes.length,
-                        separatorBuilder: (_, __) => const Divider(height: 1, indent: 20, endIndent: 20),
-                        itemBuilder: (context, index) {
-                          final field = changes.keys.elementAt(index);
-                          final change = changes[field]!;
-                          return _ChangeItem(
-                            field: field,
-                            fromValue: change['from'],
-                            toValue: change['to'],
-                          );
-                        },
-                      ),
+                child: log.entityType == ActivityEntityType.expenseSplit
+                    ? _buildExpenseSplitDetails(scrollController)
+                    : changes.isEmpty
+                        ? _buildNoDetailsView()
+                        : ListView.separated(
+                            controller: scrollController,
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            itemCount: changes.length,
+                            separatorBuilder: (_, __) => const Divider(height: 1, indent: 20, endIndent: 20),
+                            itemBuilder: (context, index) {
+                              final field = changes.keys.elementAt(index);
+                              final change = changes[field]!;
+                              return _ChangeItem(
+                                field: field,
+                                fromValue: change['from'],
+                                toValue: change['to'],
+                              );
+                            },
+                          ),
               ),
             ],
           );
