@@ -2,6 +2,7 @@ enum ActivityEntityType {
   trip,
   itineraryItem,
   expense,
+  expenseSplit,
   tripMember,
   tripDestination,
   other;
@@ -11,6 +12,7 @@ enum ActivityEntityType {
       'trip' => ActivityEntityType.trip,
       'itinerary_item' => ActivityEntityType.itineraryItem,
       'expense' => ActivityEntityType.expense,
+      'expense_split' => ActivityEntityType.expenseSplit,
       'trip_member' => ActivityEntityType.tripMember,
       'trip_destination' => ActivityEntityType.tripDestination,
       _ => ActivityEntityType.other,
@@ -22,6 +24,7 @@ enum ActivityEntityType {
       ActivityEntityType.trip => 'trip',
       ActivityEntityType.itineraryItem => 'itinerary_item',
       ActivityEntityType.expense => 'expense',
+      ActivityEntityType.expenseSplit => 'expense_split',
       ActivityEntityType.tripMember => 'trip_member',
       ActivityEntityType.tripDestination => 'trip_destination',
       ActivityEntityType.other => 'other',
@@ -33,6 +36,7 @@ enum ActivityEntityType {
       ActivityEntityType.trip => 'Trip',
       ActivityEntityType.itineraryItem => 'Activity',
       ActivityEntityType.expense => 'Expense',
+      ActivityEntityType.expenseSplit => 'Expense Split',
       ActivityEntityType.tripMember => 'Member',
       ActivityEntityType.tripDestination => 'Destination',
       ActivityEntityType.other => 'Item',
@@ -44,6 +48,7 @@ enum ActivityEntityType {
       ActivityEntityType.trip => '✈️',
       ActivityEntityType.itineraryItem => '📍',
       ActivityEntityType.expense => '💰',
+      ActivityEntityType.expenseSplit => '💸',
       ActivityEntityType.tripMember => '👤',
       ActivityEntityType.tripDestination => '🗺️',
       ActivityEntityType.other => '📝',
@@ -60,6 +65,7 @@ enum ActivityAction {
   invited,
   removed,
   reordered,
+  settled,
   other;
 
   static ActivityAction fromString(String value) {
@@ -72,6 +78,7 @@ enum ActivityAction {
       'invited' => ActivityAction.invited,
       'removed' => ActivityAction.removed,
       'reordered' => ActivityAction.reordered,
+      'settled' => ActivityAction.settled,
       _ => ActivityAction.other,
     };
   }
@@ -88,6 +95,7 @@ enum ActivityAction {
       ActivityAction.invited => 'invited',
       ActivityAction.removed => 'removed',
       ActivityAction.reordered => 'reordered',
+      ActivityAction.settled => 'settled',
       ActivityAction.other => 'modified',
     };
   }
@@ -178,6 +186,20 @@ class ActivityLog {
     final actor = actorName ?? 'Someone';
     final target = itemTitle ?? itemName ?? entityType.displayName.toLowerCase();
 
+    if (entityType == ActivityEntityType.expenseSplit) {
+      final memberCount = details['member_count'];
+      final fromName = details['from_user_name'];
+      final toName = details['to_user_name'];
+      
+      return switch (action) {
+        ActivityAction.created => '$actor split "$target" among $memberCount members',
+        ActivityAction.updated => '$actor updated split for "$target"',
+        ActivityAction.deleted => '$actor removed split for "$target"',
+        ActivityAction.settled => '$actor settled debt: $fromName paid $toName',
+        _ => '$actor modified split for "$target"',
+      };
+    }
+
     return switch (action) {
       ActivityAction.created => '$actor added "$target"',
       ActivityAction.updated => '$actor updated "$target"',
@@ -187,6 +209,7 @@ class ActivityLog {
       ActivityAction.invited => '$actor invited ${targetUserName ?? "a member"}',
       ActivityAction.removed => '$actor removed ${targetUserName ?? "a member"}',
       ActivityAction.reordered => '$actor reordered activities',
+      ActivityAction.settled => '$actor settled "$target"',
       ActivityAction.other => '$actor modified "$target"',
     };
   }
