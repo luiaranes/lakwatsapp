@@ -85,6 +85,7 @@ class ExpenseService {
     String? receiptUrl,
     String? notes,
     String? itineraryItemId,
+    List<ExpenseLineItem>? lineItems,
   }) async {
     if (_currentUserId == null) {
       throw Exception('User not authenticated');
@@ -105,6 +106,7 @@ class ExpenseService {
             'receipt_url': receiptUrl,
             'notes': notes?.trim(),
             'itinerary_item_id': itineraryItemId,
+            'line_items': lineItems?.map((item) => item.toJson()).toList(),
             'is_settled': false,
           })
           .select()

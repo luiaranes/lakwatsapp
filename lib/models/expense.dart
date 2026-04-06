@@ -58,6 +58,34 @@ enum ExpenseCategory {
   }
 }
 
+class ExpenseLineItem {
+  final String description;
+  final double? quantity;
+  final double? price;
+
+  ExpenseLineItem({
+    required this.description,
+    this.quantity,
+    this.price,
+  });
+
+  factory ExpenseLineItem.fromJson(Map<String, dynamic> json) {
+    return ExpenseLineItem(
+      description: json['description'] as String? ?? '',
+      quantity: (json['quantity'] as num?)?.toDouble(),
+      price: (json['price'] as num?)?.toDouble(),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'description': description,
+      'quantity': quantity,
+      'price': price,
+    };
+  }
+}
+
 class Expense {
   final String id;
   final String tripId;
@@ -70,6 +98,7 @@ class Expense {
   final String? receiptUrl;
   final String? notes;
   final String? itineraryItemId;
+  final List<ExpenseLineItem>? lineItems;
   final bool isSettled;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -86,12 +115,20 @@ class Expense {
     this.receiptUrl,
     this.notes,
     this.itineraryItemId,
+    this.lineItems,
     this.isSettled = false,
     required this.createdAt,
     required this.updatedAt,
   });
 
   factory Expense.fromJson(Map<String, dynamic> json) {
+    List<ExpenseLineItem>? lineItems;
+    if (json['line_items'] != null) {
+      lineItems = (json['line_items'] as List)
+          .map((item) => ExpenseLineItem.fromJson(item as Map<String, dynamic>))
+          .toList();
+    }
+
     return Expense(
       id: json['id'] as String,
       tripId: json['trip_id'] as String,
@@ -105,6 +142,7 @@ class Expense {
       receiptUrl: json['receipt_url'] as String?,
       notes: json['notes'] as String?,
       itineraryItemId: json['itinerary_item_id'] as String?,
+      lineItems: lineItems,
       isSettled: json['is_settled'] as bool? ?? false,
       createdAt: DateTime.parse(json['created_at'] as String),
       updatedAt: DateTime.parse(json['updated_at'] as String),
@@ -124,6 +162,7 @@ class Expense {
       'receipt_url': receiptUrl,
       'notes': notes,
       'itinerary_item_id': itineraryItemId,
+      'line_items': lineItems?.map((item) => item.toJson()).toList(),
       'is_settled': isSettled,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
@@ -142,6 +181,7 @@ class Expense {
       'receipt_url': receiptUrl,
       'notes': notes,
       'itinerary_item_id': itineraryItemId,
+      'line_items': lineItems?.map((item) => item.toJson()).toList(),
       'is_settled': isSettled,
     };
   }
@@ -158,6 +198,7 @@ class Expense {
     String? receiptUrl,
     String? notes,
     String? itineraryItemId,
+    List<ExpenseLineItem>? lineItems,
     bool? isSettled,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -174,6 +215,7 @@ class Expense {
       receiptUrl: receiptUrl ?? this.receiptUrl,
       notes: notes ?? this.notes,
       itineraryItemId: itineraryItemId ?? this.itineraryItemId,
+      lineItems: lineItems ?? this.lineItems,
       isSettled: isSettled ?? this.isSettled,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,

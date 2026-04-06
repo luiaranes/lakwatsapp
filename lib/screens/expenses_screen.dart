@@ -913,6 +913,12 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                           padding: const EdgeInsets.only(top: 4),
                           child: _buildSplitInfo(expense, _expenseSplits[expense.id]!),
                         ),
+                      // Show line items preview
+                      if (expense.lineItems != null && expense.lineItems!.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: _buildLineItemsPreview(expense),
+                        ),
                     ],
                   ),
                 ),
@@ -988,12 +994,263 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                           ),
                         ),
                       ),
+                    if (expense.receiptUrl != null)
+                      GestureDetector(
+                        onTap: () => _showReceiptImage(expense),
+                        child: Container(
+                          margin: const EdgeInsets.only(top: 4),
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.receipt_outlined, size: 10, color: Colors.blue),
+                              SizedBox(width: 2),
+                              Text(
+                                'Receipt',
+                                style: TextStyle(
+                                  color: Colors.blue,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ],
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  void _showReceiptImage(Expense expense) {
+    if (expense.receiptUrl == null) return;
+    
+    final hasLineItems = expense.lineItems != null && expense.lineItems!.isNotEmpty;
+    
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.8,
+                maxWidth: MediaQuery.of(context).size.width * 0.9,
+              ),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.receipt_long, size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            expense.description,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () => Navigator.pop(context),
+                          icon: const Icon(Icons.close),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  // Line items section
+                  if (hasLineItems) ...[
+                    Container(
+                      constraints: const BoxConstraints(maxHeight: 150),
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        itemCount: expense.lineItems!.length,
+                        itemBuilder: (context, index) {
+                          final item = expense.lineItems![index];
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            child: Row(
+                              children: [
+                                if (item.quantity != null) ...[
+                                  Text(
+                                    '${item.quantity!.toStringAsFixed(item.quantity! % 1 == 0 ? 0 : 1)}x ',
+                                    style: TextStyle(
+                                      color: Colors.grey[600],
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ],
+                                Expanded(
+                                  child: Text(
+                                    item.description,
+                                    style: const TextStyle(fontSize: 13),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                if (item.price != null)
+                                  Text(
+                                    _formatCurrency(item.price!, expense.currency),
+                                    style: const TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    const Divider(height: 1),
+                  ],
+                  Flexible(
+                    child: ClipRRect(
+                      borderRadius: const BorderRadius.only(
+                        bottomLeft: Radius.circular(12),
+                        bottomRight: Radius.circular(12),
+                      ),
+                      child: InteractiveViewer(
+                        minScale: 0.5,
+                        maxScale: 4.0,
+                        child: Image.network(
+                          expense.receiptUrl!,
+                          fit: BoxFit.contain,
+                          loadingBuilder: (context, child, loadingProgress) {
+                            if (loadingProgress == null) return child;
+                            return Container(
+                              height: 300,
+                              alignment: Alignment.center,
+                              child: CircularProgressIndicator(
+                                value: loadingProgress.expectedTotalBytes != null
+                                    ? loadingProgress.cumulativeBytesLoaded /
+                                        loadingProgress.expectedTotalBytes!
+                                    : null,
+                              ),
+                            );
+                          },
+                          errorBuilder: (_, __, ___) => Container(
+                            height: 200,
+                            alignment: Alignment.center,
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.broken_image, size: 48, color: Colors.grey[400]),
+                                const SizedBox(height: 8),
+                                Text(
+                                  'Failed to load receipt',
+                                  style: TextStyle(color: Colors.grey[600]),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLineItemsPreview(Expense expense) {
+    final items = expense.lineItems!;
+    final displayItems = items.take(3).toList();
+    final hasMore = items.length > 3;
+
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: Colors.grey[100],
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.list_alt, size: 12, color: Colors.grey[600]),
+              const SizedBox(width: 4),
+              Text(
+                '${items.length} item${items.length > 1 ? 's' : ''}',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Colors.grey[600],
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          ...displayItems.map((item) => Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        item.description,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey[700],
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    if (item.price != null)
+                      Text(
+                        _formatCurrency(item.price!, expense.currency),
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey[700],
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                  ],
+                ),
+              )),
+          if (hasMore)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                '+${items.length - 3} more',
+                style: TextStyle(
+                  fontSize: 10,
+                  color: Colors.grey[500],
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

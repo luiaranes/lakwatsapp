@@ -78,7 +78,7 @@
 	<key>GIDClientID</key>
 	<string>749237262584-37viha9oi8391q9tkfciedq96r0v34tt.apps.googleusercontent.com</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Lakwatsapp needs camera access to take profile photos and capture trip moments.</string>
+	<string>Lakwatsapp needs camera access to take profile photos, capture trip moments, and scan receipts for expense tracking.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Lakwatsapp needs photo library access to select profile photos and trip images.</string>
 </dict>
