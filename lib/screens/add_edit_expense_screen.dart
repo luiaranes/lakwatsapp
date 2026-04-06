@@ -1,14 +1,18 @@
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:larga/models/trip.dart';
 import 'package:larga/models/expense.dart';
 import 'package:larga/models/expense_split.dart';
 import 'package:larga/models/itinerary_item.dart';
+import 'package:larga/models/parsed_receipt.dart';
 import 'package:larga/services/expense_service.dart';
 import 'package:larga/services/expense_split_service.dart';
 import 'package:larga/services/trip_service.dart';
 import 'package:larga/services/profile_service.dart';
 import 'package:larga/services/itinerary_service.dart';
+import 'package:larga/screens/scan_receipt_screen.dart';
 import 'package:larga/utils/snackbar_utils.dart';
 import 'package:larga/widgets/expense_split_selector.dart';
 
@@ -45,6 +49,8 @@ class _AddEditExpenseScreenState extends State<AddEditExpenseScreen> {
   String _selectedCurrency = 'PHP';
   String? _selectedPayerId;
   String? _selectedItineraryItemId;
+  String? _receiptUrl;
+  List<ExpenseLineItem>? _lineItems;
   bool _isSaving = false;
   bool _isLoadingMembers = true;
   bool _isLoadingItinerary = true;
@@ -72,6 +78,8 @@ class _AddEditExpenseScreenState extends State<AddEditExpenseScreen> {
     _selectedCurrency = expense?.currency ?? widget.trip?.currency ?? 'PHP';
     _selectedPayerId = expense?.paidByUserId;
     _selectedItineraryItemId = expense?.itineraryItemId;
+    _receiptUrl = expense?.receiptUrl;
+    _lineItems = expense?.lineItems;
 
     _loadMembers();
     _loadItineraryItems();
@@ -205,6 +213,57 @@ class _AddEditExpenseScreenState extends State<AddEditExpenseScreen> {
     }
   }
 
+  bool get _canScanReceipt {
+    if (kIsWeb) return false;
+    try {
+      return Platform.isIOS || Platform.isAndroid;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _scanReceipt() async {
+    final result = await Navigator.of(context).push<ParsedReceipt>(
+      MaterialPageRoute(
+        builder: (_) => ScanReceiptScreen(tripId: widget.tripId),
+      ),
+    );
+
+    if (result == null || !mounted) return;
+
+    setState(() {
+      if (result.hasValidAmount) {
+        _amountController.text = result.amount!.toStringAsFixed(2);
+      }
+      if (result.hasValidMerchant) {
+        _descriptionController.text = result.merchant!;
+      }
+      if (result.hasValidDate) {
+        _selectedDate = result.date!;
+      }
+      if (result.suggestedCategory != null) {
+        _selectedCategory = result.suggestedCategory!;
+      }
+      if (result.currency != null) {
+        _selectedCurrency = result.currency!;
+      }
+      if (result.receiptUrl != null) {
+        _receiptUrl = result.receiptUrl;
+      }
+      if (result.lineItems != null && result.lineItems!.isNotEmpty) {
+        _lineItems = result.lineItems!
+            .map((item) => ExpenseLineItem(
+                  description: item.description,
+                  quantity: item.quantity,
+                  price: item.price,
+                ))
+            .toList();
+      }
+    });
+
+    SnackBarUtils.showSuccess(context, 'Receipt scanned! Review and save.');
+  }
+
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -256,6 +315,8 @@ class _AddEditExpenseScreenState extends State<AddEditExpenseScreen> {
               ? _notesController.text.trim()
               : null,
           itineraryItemId: _selectedItineraryItemId,
+          receiptUrl: _receiptUrl,
+          lineItems: _lineItems,
         );
 
         await _saveSplits(result.id, amount);
@@ -321,6 +382,16 @@ class _AddEditExpenseScreenState extends State<AddEditExpenseScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            // Scan Receipt button (mobile only, not when editing)
+            if (_canScanReceipt && !_isEditing) ...[
+              _buildScanReceiptButton(theme),
+              const SizedBox(height: 16),
+            ],
+            // Receipt preview if scanned
+            if (_receiptUrl != null) ...[
+              _buildReceiptPreview(theme),
+              const SizedBox(height: 16),
+            ],
             // Amount input with currency
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -572,6 +643,99 @@ class _AddEditExpenseScreenState extends State<AddEditExpenseScreen> {
       ExpenseCategory.tips => Colors.green,
       ExpenseCategory.other => Colors.grey,
     };
+  }
+
+  Widget _buildScanReceiptButton(ThemeData theme) {
+    return OutlinedButton.icon(
+      onPressed: _scanReceipt,
+      icon: const Icon(Icons.document_scanner_outlined),
+      label: const Text('Scan Receipt'),
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size(double.infinity, 56),
+        side: BorderSide(
+          color: theme.colorScheme.primary.withValues(alpha: 0.5),
+          width: 1.5,
+        ),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildReceiptPreview(ThemeData theme) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: theme.colorScheme.primary.withValues(alpha: 0.3),
+        ),
+      ),
+      child: Row(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: Image.network(
+              _receiptUrl!,
+              width: 60,
+              height: 60,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => Container(
+                width: 60,
+                height: 60,
+                color: Colors.grey[200],
+                child: const Icon(Icons.receipt_long, color: Colors.grey),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      Icons.check_circle,
+                      size: 16,
+                      color: theme.colorScheme.primary,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Receipt attached',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: theme.colorScheme.primary,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Data extracted from scan',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: Colors.grey[600],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            onPressed: () {
+              setState(() => _receiptUrl = null);
+            },
+            icon: Icon(
+              Icons.close,
+              size: 20,
+              color: Colors.grey[600],
+            ),
+            tooltip: 'Remove receipt',
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildPayerSelector() {
