@@ -93,7 +93,6 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
 
   @override
   void dispose() {
-    _receiptService.dispose();
     super.dispose();
   }
 
