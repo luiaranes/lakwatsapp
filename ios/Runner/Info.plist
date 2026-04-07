@@ -81,5 +81,9 @@
 	<string>Lakwatsapp needs camera access to take profile photos, capture trip moments, and scan receipts for expense tracking.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Lakwatsapp needs photo library access to select profile photos and trip images.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Lakwatsapp needs microphone access to use voice input for quick expense entry.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Lakwatsapp uses speech recognition to convert your voice into text for quick expense entry.</string>
 </dict>
 </plist>
