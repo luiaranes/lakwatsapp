@@ -1,10 +1,24 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:larga/models/parsed_receipt.dart';
 import 'package:larga/services/receipt_scanning_service.dart';
+import 'package:larga/services/trip_service.dart';
+import 'package:larga/services/profile_service.dart';
 import 'package:larga/utils/snackbar_utils.dart';
+import 'package:larga/widgets/expense_split_selector.dart';
+
+class ScanReceiptResult {
+  final ParsedReceipt receipt;
+  final ExpenseSplitData? splitData;
+
+  ScanReceiptResult({
+    required this.receipt,
+    this.splitData,
+  });
+}
 
 class ScanReceiptScreen extends StatefulWidget {
   final String tripId;
@@ -20,12 +34,62 @@ class ScanReceiptScreen extends StatefulWidget {
 
 class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
   final _receiptService = ReceiptScanningService();
+  final _tripService = TripService();
+  final _profileService = ProfileService();
   final _imagePicker = ImagePicker();
 
   File? _selectedImage;
   ParsedReceipt? _parsedReceipt;
   bool _isProcessing = false;
   String _processingStatus = '';
+
+  List<SplitMember> _splitMembers = [];
+  ExpenseSplitData? _splitData;
+  bool _isLoadingMembers = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadTripMembers();
+  }
+
+  Future<void> _loadTripMembers() async {
+    try {
+      final members = await _tripService.getTripMembers(widget.tripId);
+      final authIds = members.map((m) => m.userId).toList();
+      final profiles = await _profileService.getProfilesByAuthIds(authIds);
+      final profileMap = {for (var p in profiles) p.authId: p};
+      final currentUserId = _tripService.currentUserId;
+
+      final splitMembers = members.map((m) {
+        final profile = profileMap[m.userId];
+        return SplitMember(
+          userId: m.userId,
+          displayName: profile?.displayName ?? 'Unknown',
+          avatarUrl: profile?.avatarUrl,
+          isCurrentUser: m.userId == currentUserId,
+        );
+      }).toList();
+
+      splitMembers.sort((a, b) {
+        if (a.isCurrentUser) return -1;
+        if (b.isCurrentUser) return 1;
+        return a.displayName.compareTo(b.displayName);
+      });
+
+      if (!mounted) return;
+
+      setState(() {
+        _splitMembers = splitMembers;
+        _isLoadingMembers = false;
+      });
+    } catch (e) {
+      debugPrint('Failed to load trip members: $e');
+      if (mounted) {
+        setState(() => _isLoadingMembers = false);
+      }
+    }
+  }
 
   @override
   void dispose() {
@@ -134,7 +198,10 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
 
   void _confirmAndReturn() {
     if (_parsedReceipt == null) return;
-    Navigator.of(context).pop(_parsedReceipt);
+    Navigator.of(context).pop(ScanReceiptResult(
+      receipt: _parsedReceipt!,
+      splitData: _splitData,
+    ));
   }
 
   void _retake() {
@@ -247,7 +314,10 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
                   ),
                 ),
                 if (_isProcessing) _buildProcessingIndicator(theme),
-                if (_parsedReceipt != null) _buildExtractedData(theme),
+                if (_parsedReceipt != null) ...[
+                  _buildExtractedData(theme),
+                  _buildSplitSection(theme),
+                ],
               ],
             ),
           ),
@@ -476,6 +546,38 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildSplitSection(ThemeData theme) {
+    if (_isLoadingMembers) {
+      return Container(
+        margin: const EdgeInsets.all(16),
+        child: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_splitMembers.length < 2) {
+      return const SizedBox.shrink();
+    }
+
+    final amount = _parsedReceipt?.amount ?? 0.0;
+    final currency = _parsedReceipt?.currency ?? 'PHP';
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      child: ExpenseSplitSelector(
+        members: _splitMembers,
+        totalAmount: amount,
+        currency: currency,
+        paidByUserId: _tripService.currentUserId,
+        initialData: _splitData,
+        onChanged: (data) {
+          setState(() {
+            _splitData = data;
+          });
+        },
+      ),
     );
   }
 

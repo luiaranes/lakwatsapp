@@ -6,6 +6,7 @@ import 'package:larga/services/itinerary_service.dart';
 import 'package:larga/services/trip_service.dart';
 import 'package:larga/utils/snackbar_utils.dart';
 import 'package:larga/screens/add_edit_itinerary_item_screen.dart';
+import 'package:larga/screens/quick_add_itinerary_screen.dart';
 import 'package:larga/widgets/itinerary_item_card.dart';
 import 'package:larga/widgets/skeleton_widgets.dart';
 
@@ -78,6 +79,76 @@ class _ItineraryScreenState extends State<ItineraryScreen> {
       if (!mounted) return;
       setState(() => _isLoading = false);
       SnackBarUtils.showError(context, 'Failed to load itinerary');
+    }
+  }
+
+  void _showAddOptions(int dayNumber) {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    Icons.auto_awesome,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+                title: const Text('AI Quick Add'),
+                subtitle: const Text('Describe your activity in natural language'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _quickAddItem(dayNumber);
+                },
+              ),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[200],
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    Icons.edit_outlined,
+                    color: Colors.grey[700],
+                  ),
+                ),
+                title: const Text('Manual Entry'),
+                subtitle: const Text('Fill in all details manually'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _addItem(dayNumber);
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _quickAddItem(int dayNumber) async {
+    final result = await Navigator.of(context).push<ItineraryItem>(
+      MaterialPageRoute(
+        builder: (context) => QuickAddItineraryScreen(
+          tripId: widget.tripId,
+          dayNumber: dayNumber,
+          trip: _trip,
+        ),
+      ),
+    );
+
+    if (result != null) {
+      _loadData();
     }
   }
 
@@ -247,7 +318,7 @@ class _ItineraryScreenState extends State<ItineraryScreen> {
                 ? FloatingActionButton.extended(
                     onPressed: () {
                       final currentDay = DefaultTabController.of(context).index + 1;
-                      _addItem(currentDay);
+                      _showAddOptions(currentDay);
                     },
                     icon: const Icon(Icons.add),
                     label: const Text('Add Activity'),
@@ -375,7 +446,7 @@ class _ItineraryScreenState extends State<ItineraryScreen> {
             const SizedBox(height: 24),
             if (_canEdit)
               FilledButton.icon(
-                onPressed: () => _addItem(dayNumber),
+                onPressed: () => _showAddOptions(dayNumber),
                 icon: const Icon(Icons.add),
                 label: const Text('Add Activity'),
               ),

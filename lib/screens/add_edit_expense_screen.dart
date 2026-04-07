@@ -6,13 +6,13 @@ import 'package:larga/models/trip.dart';
 import 'package:larga/models/expense.dart';
 import 'package:larga/models/expense_split.dart';
 import 'package:larga/models/itinerary_item.dart';
-import 'package:larga/models/parsed_receipt.dart';
 import 'package:larga/services/expense_service.dart';
 import 'package:larga/services/expense_split_service.dart';
 import 'package:larga/services/trip_service.dart';
 import 'package:larga/services/profile_service.dart';
 import 'package:larga/services/itinerary_service.dart';
 import 'package:larga/screens/scan_receipt_screen.dart';
+import 'package:larga/screens/quick_add_expense_screen.dart';
 import 'package:larga/utils/snackbar_utils.dart';
 import 'package:larga/widgets/expense_split_selector.dart';
 
@@ -223,7 +223,7 @@ class _AddEditExpenseScreenState extends State<AddEditExpenseScreen> {
   }
 
   Future<void> _scanReceipt() async {
-    final result = await Navigator.of(context).push<ParsedReceipt>(
+    final result = await Navigator.of(context).push<ScanReceiptResult>(
       MaterialPageRoute(
         builder: (_) => ScanReceiptScreen(tripId: widget.tripId),
       ),
@@ -231,33 +231,40 @@ class _AddEditExpenseScreenState extends State<AddEditExpenseScreen> {
 
     if (result == null || !mounted) return;
 
+    final receipt = result.receipt;
+
     setState(() {
-      if (result.hasValidAmount) {
-        _amountController.text = result.amount!.toStringAsFixed(2);
+      if (receipt.hasValidAmount) {
+        _amountController.text = receipt.amount!.toStringAsFixed(2);
       }
-      if (result.hasValidMerchant) {
-        _descriptionController.text = result.merchant!;
+      if (receipt.hasValidMerchant) {
+        _descriptionController.text = receipt.merchant!;
       }
-      if (result.hasValidDate) {
-        _selectedDate = result.date!;
+      if (receipt.hasValidDate) {
+        _selectedDate = receipt.date!;
       }
-      if (result.suggestedCategory != null) {
-        _selectedCategory = result.suggestedCategory!;
+      if (receipt.suggestedCategory != null) {
+        _selectedCategory = receipt.suggestedCategory!;
       }
-      if (result.currency != null) {
-        _selectedCurrency = result.currency!;
+      if (receipt.currency != null) {
+        _selectedCurrency = receipt.currency!;
       }
-      if (result.receiptUrl != null) {
-        _receiptUrl = result.receiptUrl;
+      if (receipt.receiptUrl != null) {
+        _receiptUrl = receipt.receiptUrl;
       }
-      if (result.lineItems != null && result.lineItems!.isNotEmpty) {
-        _lineItems = result.lineItems!
+      if (receipt.lineItems != null && receipt.lineItems!.isNotEmpty) {
+        _lineItems = receipt.lineItems!
             .map((item) => ExpenseLineItem(
                   description: item.description,
                   quantity: item.quantity,
                   price: item.price,
                 ))
             .toList();
+      }
+
+      // Apply split data from receipt scan
+      if (result.splitData != null) {
+        _splitData = result.splitData;
       }
     });
 
@@ -382,9 +389,9 @@ class _AddEditExpenseScreenState extends State<AddEditExpenseScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            // Scan Receipt button (mobile only, not when editing)
-            if (_canScanReceipt && !_isEditing) ...[
-              _buildScanReceiptButton(theme),
+            // Quick Add and Scan Receipt buttons (not when editing)
+            if (!_isEditing) ...[
+              _buildQuickInputButtons(theme),
               const SizedBox(height: 16),
             ],
             // Receipt preview if scanned
@@ -645,21 +652,62 @@ class _AddEditExpenseScreenState extends State<AddEditExpenseScreen> {
     };
   }
 
-  Widget _buildScanReceiptButton(ThemeData theme) {
-    return OutlinedButton.icon(
-      onPressed: _scanReceipt,
-      icon: const Icon(Icons.document_scanner_outlined),
-      label: const Text('Scan Receipt'),
-      style: OutlinedButton.styleFrom(
-        minimumSize: const Size(double.infinity, 56),
-        side: BorderSide(
-          color: theme.colorScheme.primary.withValues(alpha: 0.5),
-          width: 1.5,
-        ),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
+  Future<void> _quickAdd() async {
+    final result = await Navigator.of(context).push<Expense>(
+      MaterialPageRoute(
+        builder: (_) => QuickAddExpenseScreen(
+          tripId: widget.tripId,
+          trip: widget.trip,
         ),
       ),
+    );
+
+    if (result != null && mounted) {
+      Navigator.of(context).pop(result);
+    }
+  }
+
+  Widget _buildQuickInputButtons(ThemeData theme) {
+    return Row(
+      children: [
+        Expanded(
+          child: OutlinedButton.icon(
+            onPressed: _quickAdd,
+            icon: const Icon(Icons.auto_awesome, size: 20),
+            label: const Text('Quick Add'),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size(0, 56),
+              side: BorderSide(
+                color: theme.colorScheme.primary.withValues(alpha: 0.5),
+                width: 1.5,
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+        ),
+        if (_canScanReceipt) ...[
+          const SizedBox(width: 12),
+          Expanded(
+            child: OutlinedButton.icon(
+              onPressed: _scanReceipt,
+              icon: const Icon(Icons.document_scanner_outlined, size: 20),
+              label: const Text('Scan Receipt'),
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size(0, 56),
+                side: BorderSide(
+                  color: theme.colorScheme.primary.withValues(alpha: 0.5),
+                  width: 1.5,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ],
     );
   }
 

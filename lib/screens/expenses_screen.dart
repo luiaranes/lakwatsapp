@@ -15,6 +15,7 @@ import 'package:larga/services/currency_service.dart';
 import 'package:larga/utils/snackbar_utils.dart';
 import 'package:larga/screens/add_edit_expense_screen.dart';
 import 'package:larga/screens/expense_balances_screen.dart';
+import 'package:larga/screens/quick_add_expense_screen.dart';
 import 'package:larga/widgets/skeleton_widgets.dart';
 
 class ExpensesScreen extends StatefulWidget {
@@ -178,6 +179,87 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
     }
   }
 
+  void _showAddExpenseOptions() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    Icons.auto_awesome,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+                title: const Text('AI Quick Add'),
+                subtitle: const Text('Describe expense in natural language'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _quickAddExpense();
+                },
+              ),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.secondaryContainer,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    Icons.edit_outlined,
+                    color: Theme.of(context).colorScheme.secondary,
+                  ),
+                ),
+                title: const Text('Manual Entry'),
+                subtitle: const Text('Fill in expense details'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _addExpense();
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _quickAddExpense() async {
+    final result = await Navigator.of(context).push<Expense>(
+      MaterialPageRoute(
+        builder: (context) => QuickAddExpenseScreen(
+          tripId: widget.tripId,
+          trip: _trip,
+        ),
+      ),
+    );
+
+    if (result != null) {
+      _loadData();
+    }
+  }
+
   Future<void> _addExpense() async {
     final result = await Navigator.of(context).push<Expense>(
       MaterialPageRoute(
@@ -292,7 +374,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
       body: _expenses.isEmpty ? _buildEmptyState() : _buildExpensesList(),
       floatingActionButton: _canEdit
           ? FloatingActionButton.extended(
-              onPressed: _addExpense,
+              onPressed: _showAddExpenseOptions,
               icon: const Icon(Icons.add),
               label: const Text('Add Expense'),
             )
