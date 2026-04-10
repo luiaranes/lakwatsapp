@@ -50,8 +50,8 @@ class _VoiceInputButtonState extends State<VoiceInputButton> {
   }
 
   void _showVoiceOverlay() {
-    Navigator.of(context).push(
-      PageRouteBuilder(
+    Navigator.of(context).push<String>(
+      PageRouteBuilder<String>(
         opaque: false,
         barrierDismissible: false,
         pageBuilder: (context, animation, secondaryAnimation) {
@@ -59,8 +59,7 @@ class _VoiceInputButtonState extends State<VoiceInputButton> {
             opacity: animation,
             child: VoiceInputOverlay(
               onTranscript: (transcript) {
-                Navigator.of(context).pop();
-                widget.onTranscript(transcript);
+                Navigator.of(context).pop(transcript);
               },
               onCancel: () {
                 Navigator.of(context).pop();
@@ -72,7 +71,11 @@ class _VoiceInputButtonState extends State<VoiceInputButton> {
         transitionDuration: const Duration(milliseconds: 200),
         reverseTransitionDuration: const Duration(milliseconds: 150),
       ),
-    );
+    ).then((transcript) {
+      if (transcript != null && transcript.isNotEmpty) {
+        widget.onTranscript(transcript);
+      }
+    });
   }
 
   @override
@@ -212,11 +215,11 @@ class _VoiceInputOverlayState extends State<VoiceInputOverlay>
       case SpeechStatus.idle:
         setState(() {
           _isListening = false;
+          if (event.isFinal && event.transcript != null) {
+            _transcript = event.transcript!;
+          }
         });
         _pulseController.stop();
-        if (event.isFinal && event.transcript != null && event.transcript!.isNotEmpty) {
-          widget.onTranscript(event.transcript!);
-        }
         break;
 
       case SpeechStatus.processing:
