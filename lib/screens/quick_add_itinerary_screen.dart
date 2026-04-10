@@ -6,6 +6,7 @@ import 'package:larga/services/quick_add_itinerary_service.dart';
 import 'package:larga/services/itinerary_service.dart';
 import 'package:larga/utils/snackbar_utils.dart';
 import 'package:larga/screens/add_edit_itinerary_item_screen.dart';
+import 'package:larga/widgets/voice_input_button.dart';
 
 class QuickAddItineraryScreen extends StatefulWidget {
   final String tripId;
@@ -173,6 +174,11 @@ class _QuickAddItineraryScreenState extends State<QuickAddItineraryScreen> {
     );
   }
 
+  void _onVoiceTranscript(String transcript) {
+    _textController.text = transcript;
+    _parseText(transcript);
+  }
+
   Widget _buildInputSection(ThemeData theme) {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -195,11 +201,20 @@ class _QuickAddItineraryScreenState extends State<QuickAddItineraryScreen> {
                 size: 20,
               ),
               const SizedBox(width: 8),
-              Text(
-                'Describe your activity',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: Colors.grey[600],
+              Expanded(
+                child: Text(
+                  'Describe your activity',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: Colors.grey[600],
+                  ),
                 ),
+              ),
+              VoiceInputButton(
+                onTranscript: _onVoiceTranscript,
+                onError: (error) {
+                  SnackBarUtils.showError(context, error);
+                },
+                size: 40,
               ),
             ],
           ),
@@ -471,12 +486,18 @@ class _QuickAddItineraryScreenState extends State<QuickAddItineraryScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Try typing:',
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: Colors.grey[500],
-            fontWeight: FontWeight.w500,
-          ),
+        Row(
+          children: [
+            Icon(Icons.mic_outlined, size: 16, color: Colors.grey[500]),
+            const SizedBox(width: 4),
+            Text(
+              'Try saying or typing:',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: Colors.grey[500],
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 8),
         Wrap(
