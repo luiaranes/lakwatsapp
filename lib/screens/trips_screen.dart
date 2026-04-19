@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:larga/models/trip.dart';
+import 'package:larga/models/draft_itinerary.dart';
 import 'package:larga/services/trip_service.dart';
+import 'package:larga/services/draft_itinerary_service.dart';
 import 'package:larga/screens/create_trip_screen.dart';
 import 'package:larga/screens/trip_detail_screen.dart';
+import 'package:larga/screens/review_itinerary_screen.dart';
 import 'package:larga/widgets/skeleton_widgets.dart';
 
 class TripsScreen extends StatefulWidget {
@@ -16,9 +19,11 @@ class TripsScreen extends StatefulWidget {
 class _TripsScreenState extends State<TripsScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
   final _tripService = TripService();
+  final _draftService = DraftItineraryService();
 
   List<Trip> _upcomingTrips = [];
   List<Trip> _pastTrips = [];
+  List<DraftItinerary> _drafts = [];
   bool _isLoading = true;
   String? _error;
 
@@ -46,12 +51,14 @@ class _TripsScreenState extends State<TripsScreen> with SingleTickerProviderStat
       final results = await Future.wait([
         _tripService.getUpcomingTrips(),
         _tripService.getPastTrips(),
+        _draftService.getDrafts(),
       ]);
 
       if (!mounted) return;
       setState(() {
-        _upcomingTrips = results[0];
-        _pastTrips = results[1];
+        _upcomingTrips = results[0] as List<Trip>;
+        _pastTrips = results[1] as List<Trip>;
+        _drafts = results[2] as List<DraftItinerary>;
         _isLoading = false;
       });
     } catch (e) {
@@ -60,6 +67,43 @@ class _TripsScreenState extends State<TripsScreen> with SingleTickerProviderStat
         _error = e.toString();
         _isLoading = false;
       });
+    }
+  }
+
+  Future<void> _openDraft(DraftItinerary draft) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => ReviewItineraryScreen.fromDraft(draftId: draft.id),
+      ),
+    );
+    _loadTrips();
+  }
+
+  Future<void> _deleteDraft(DraftItinerary draft) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Draft?'),
+        content: Text(
+          'Delete the draft itinerary for "${draft.destination?.name ?? 'Unknown'}"? This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      await _draftService.deleteDraft(draft.id);
+      _loadTrips();
     }
   }
 
@@ -186,29 +230,90 @@ class _TripsScreenState extends State<TripsScreen> with SingleTickerProviderStat
     );
   }
 
+  Widget _buildDraftsSection(ThemeData theme) {
+    if (_drafts.isEmpty) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          child: Row(
+            children: [
+              Icon(Icons.pending_actions, size: 20, color: Colors.orange[700]),
+              const SizedBox(width: 8),
+              Text(
+                'Draft Itineraries',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                '${_drafts.length} pending',
+                style: TextStyle(color: Colors.grey[600], fontSize: 12),
+              ),
+            ],
+          ),
+        ),
+        SizedBox(
+          height: 140,
+          child: ListView.builder(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            scrollDirection: Axis.horizontal,
+            itemCount: _drafts.length,
+            itemBuilder: (context, index) {
+              final draft = _drafts[index];
+              return _DraftCard(
+                draft: draft,
+                onTap: () => _openDraft(draft),
+                onDelete: () => _deleteDraft(draft),
+              );
+            },
+          ),
+        ),
+        const Divider(height: 24),
+      ],
+    );
+  }
+
   Widget _buildTripsContent() {
+    final theme = Theme.of(context);
+    
     return RefreshIndicator(
       onRefresh: _loadTrips,
       child: TabBarView(
         controller: _tabController,
         children: [
           // Upcoming Trips
-          _upcomingTrips.isEmpty
+          _upcomingTrips.isEmpty && _drafts.isEmpty
               ? _buildTabEmptyState(
                   'No upcoming trips',
                   'Plan your next adventure!',
                   Icons.flight_takeoff,
                 )
               : ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: _upcomingTrips.length + 1,
+                  padding: EdgeInsets.zero,
+                  itemCount: _upcomingTrips.length + (_drafts.isNotEmpty ? 2 : 1),
                   itemBuilder: (context, index) {
-                    if (index == _upcomingTrips.length) {
+                    // Drafts section at the top
+                    if (_drafts.isNotEmpty && index == 0) {
+                      return _buildDraftsSection(theme);
+                    }
+                    
+                    final tripIndex = _drafts.isNotEmpty ? index - 1 : index;
+                    
+                    if (tripIndex >= _upcomingTrips.length) {
                       return const SizedBox(height: 80);
                     }
-                    final trip = _upcomingTrips[index];
+                    final trip = _upcomingTrips[tripIndex];
                     return Padding(
-                      padding: const EdgeInsets.only(bottom: 16),
+                      padding: EdgeInsets.fromLTRB(
+                        16, 
+                        tripIndex == 0 && _drafts.isEmpty ? 16 : 0, 
+                        16, 
+                        16,
+                      ),
                       child: _TripCard(
                         trip: trip,
                         onTap: () => _openTrip(trip),
@@ -590,6 +695,139 @@ class _StatusBadge extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _DraftCard extends StatelessWidget {
+  final DraftItinerary draft;
+  final VoidCallback onTap;
+  final VoidCallback onDelete;
+
+  const _DraftCard({
+    required this.draft,
+    required this.onTap,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final dateFormat = DateFormat('MMM d');
+    final destination = draft.destination;
+    
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 200,
+        margin: const EdgeInsets.symmetric(horizontal: 4),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Stack(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Icon(
+                          Icons.auto_awesome,
+                          size: 16,
+                          color: Colors.orange[700],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'AI Draft',
+                          style: TextStyle(
+                            color: Colors.orange[700],
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    destination?.name ?? 'Unknown Destination',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${dateFormat.format(draft.preferences.startDate)} - ${dateFormat.format(draft.preferences.endDate)}',
+                    style: TextStyle(
+                      color: Colors.grey[600],
+                      fontSize: 12,
+                    ),
+                  ),
+                  const Spacer(),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(4),
+                          child: LinearProgressIndicator(
+                            value: draft.reviewProgress,
+                            backgroundColor: Colors.grey[200],
+                            color: Colors.orange,
+                            minHeight: 4,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '${(draft.reviewProgress * 100).toInt()}%',
+                        style: TextStyle(
+                          color: Colors.grey[600],
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            Positioned(
+              top: 4,
+              right: 4,
+              child: IconButton(
+                icon: Icon(Icons.close, size: 16, color: Colors.grey[400]),
+                onPressed: onDelete,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(
+                  minWidth: 24,
+                  minHeight: 24,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
