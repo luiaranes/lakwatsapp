@@ -264,4 +264,59 @@ class ActivityLogService {
       details: {'target_user_name': memberName},
     );
   }
+
+  /// Log destination added to trip
+  Future<void> logDestinationAdded(
+    String tripId,
+    String tripDestinationId,
+    String destinationName, {
+    int? dayNumber,
+  }) async {
+    await logActivity(
+      entityType: ActivityEntityType.tripDestination,
+      entityId: tripDestinationId,
+      tripId: tripId,
+      action: ActivityAction.created,
+      details: {
+        'title': destinationName,
+        if (dayNumber != null) 'day_number': dayNumber,
+      },
+    );
+  }
+
+  /// Log destination removed from trip
+  Future<void> logDestinationRemoved(
+    String tripId,
+    String tripDestinationId,
+    String destinationName,
+  ) async {
+    await logActivity(
+      entityType: ActivityEntityType.tripDestination,
+      entityId: tripDestinationId,
+      tripId: tripId,
+      action: ActivityAction.deleted,
+      details: {'title': destinationName},
+    );
+  }
+
+  /// Log destination updated (day changed, notes, etc.)
+  Future<void> logDestinationUpdated(
+    String tripId,
+    String tripDestinationId,
+    String destinationName, {
+    List<String>? changedFields,
+    Map<String, Map<String, dynamic>>? changes,
+  }) async {
+    await logActivity(
+      entityType: ActivityEntityType.tripDestination,
+      entityId: tripDestinationId,
+      tripId: tripId,
+      action: ActivityAction.updated,
+      details: {
+        'title': destinationName,
+        if (changedFields != null) 'changed_fields': changedFields,
+        if (changes != null) 'changes': changes,
+      },
+    );
+  }
 }

@@ -9,3 +9,5 @@ export 'expense_split.dart';
 export 'post.dart';
 export 'friendship.dart';
 export 'activity_log.dart';
+export 'trip_preferences.dart';
+export 'draft_itinerary.dart';
