@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:larga/models/trip.dart';
@@ -13,10 +14,14 @@ class TripsScreen extends StatefulWidget {
   const TripsScreen({super.key});
 
   @override
-  State<TripsScreen> createState() => _TripsScreenState();
+  TripsScreenState createState() => TripsScreenState();
 }
 
-class _TripsScreenState extends State<TripsScreen> with SingleTickerProviderStateMixin {
+class TripsScreenState extends State<TripsScreen> with SingleTickerProviderStateMixin {
+  /// Public method to refresh data when tab is selected
+  void refreshData() {
+    _loadTrips();
+  }
   late TabController _tabController;
   final _tripService = TripService();
   final _draftService = DraftItineraryService();
@@ -27,15 +32,37 @@ class _TripsScreenState extends State<TripsScreen> with SingleTickerProviderStat
   bool _isLoading = true;
   String? _error;
 
+  StreamSubscription<void>? _tripsSubscription;
+  StreamSubscription<void>? _draftsSubscription;
+
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _loadTrips();
+    _setupRealtimeSubscriptions();
+  }
+
+  void _setupRealtimeSubscriptions() {
+    _tripsSubscription = _tripService.subscribeToTripsChanges(
+      onUpdate: () {
+        if (mounted) _loadTrips();
+      },
+    );
+
+    _draftsSubscription = _draftService.subscribeToDraftChanges(
+      onUpdate: () {
+        if (mounted) _loadTrips();
+      },
+    );
   }
 
   @override
   void dispose() {
+    _tripsSubscription?.cancel();
+    _draftsSubscription?.cancel();
+    _tripService.unsubscribeFromTrips();
+    _draftService.unsubscribeFromDrafts();
     _tabController.dispose();
     super.dispose();
   }

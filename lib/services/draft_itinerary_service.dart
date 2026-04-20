@@ -1,12 +1,15 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:larga/models/draft_itinerary.dart';
 import 'package:larga/models/destination.dart';
 import 'package:larga/models/trip_preferences.dart';
 import 'package:larga/services/trip_planning_service.dart';
+import 'package:larga/services/realtime_service.dart';
 
 class DraftItineraryService {
   final _supabase = Supabase.instance.client;
+  final _realtimeService = RealtimeService();
 
   String? get _userId => _supabase.auth.currentUser?.id;
 
@@ -200,5 +203,28 @@ class DraftItineraryService {
       'packing_suggestions': itinerary.packingSuggestions,
       'travel_tips': itinerary.travelTips,
     };
+  }
+
+  // ============================================================================
+  // REALTIME SUBSCRIPTIONS
+  // ============================================================================
+
+  /// Subscribe to real-time updates for draft itineraries.
+  /// Returns a StreamSubscription that should be stored and cancelled in dispose().
+  StreamSubscription<void>? subscribeToDraftChanges({
+    required void Function() onUpdate,
+  }) {
+    final stream = _realtimeService.subscribeToDraftItineraries();
+    if (stream == const Stream.empty()) return null;
+    
+    return stream.listen((payload) {
+      debugPrint('DraftItineraryService: Realtime draft change: ${payload.event}');
+      onUpdate();
+    });
+  }
+
+  /// Unsubscribe from draft itinerary updates
+  void unsubscribeFromDrafts() {
+    _realtimeService.unsubscribeFromDraftItineraries();
   }
 }

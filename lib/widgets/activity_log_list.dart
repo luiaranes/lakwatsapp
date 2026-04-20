@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:larga/models/activity_log.dart';
@@ -32,10 +33,29 @@ class _ActivityLogListState extends State<ActivityLogList> {
   Map<String, UserProfile> _userProfiles = {};
   bool _isLoading = true;
 
+  StreamSubscription<void>? _activitySubscription;
+
   @override
   void initState() {
     super.initState();
     _loadLogs();
+    _setupRealtimeSubscription();
+  }
+
+  void _setupRealtimeSubscription() {
+    _activitySubscription = _activityLogService.subscribeToActivityLogChanges(
+      tripId: widget.tripId,
+      onUpdate: () {
+        if (mounted) _loadLogs();
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _activitySubscription?.cancel();
+    _activityLogService.unsubscribeFromActivityLogs(widget.tripId);
+    super.dispose();
   }
 
   Future<void> _loadLogs() async {
@@ -523,15 +543,29 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
   bool _hasMore = true;
   static const _pageSize = 30;
 
+  StreamSubscription<void>? _activitySubscription;
+
   @override
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
     _loadLogs();
+    _setupRealtimeSubscription();
+  }
+
+  void _setupRealtimeSubscription() {
+    _activitySubscription = _activityLogService.subscribeToActivityLogChanges(
+      tripId: widget.tripId,
+      onUpdate: () {
+        if (mounted) _loadLogs();
+      },
+    );
   }
 
   @override
   void dispose() {
+    _activitySubscription?.cancel();
+    _activityLogService.unsubscribeFromActivityLogs(widget.tripId);
     _scrollController.dispose();
     super.dispose();
   }

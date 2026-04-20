@@ -13,13 +13,23 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> {
   int _currentIndex = 0;
+  int _previousIndex = 0;
 
-  final List<Widget> _screens = [
-    const ExploreScreen(),
-    const TripsScreen(),
-    const FeedScreen(),
-    const ProfileScreen(),
-  ];
+  final GlobalKey<TripsScreenState> _tripsKey = GlobalKey<TripsScreenState>();
+  final GlobalKey<ProfileScreenState> _profileKey = GlobalKey<ProfileScreenState>();
+
+  late final List<Widget> _screens;
+
+  @override
+  void initState() {
+    super.initState();
+    _screens = [
+      const ExploreScreen(),
+      TripsScreen(key: _tripsKey),
+      const FeedScreen(),
+      ProfileScreen(key: _profileKey),
+    ];
+  }
 
   final List<NavigationDestination> _destinations = const [
     NavigationDestination(
@@ -45,9 +55,22 @@ class _MainShellState extends State<MainShell> {
   ];
 
   void _onDestinationSelected(int index) {
+    _previousIndex = _currentIndex;
     setState(() {
       _currentIndex = index;
     });
+    
+    // Trigger refresh when tab is selected and was previously on a different tab
+    if (_previousIndex != index) {
+      switch (index) {
+        case 1:
+          _tripsKey.currentState?.refreshData();
+          break;
+        case 3:
+          _profileKey.currentState?.refreshData();
+          break;
+      }
+    }
   }
 
   @override
