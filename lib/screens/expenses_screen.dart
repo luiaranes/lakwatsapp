@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -51,11 +52,30 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
   bool _isLoadingRates = false;
   bool _canEdit = false;
 
+  StreamSubscription<void>? _expensesSubscription;
+
   @override
   void initState() {
     super.initState();
     _trip = widget.trip;
     _loadData();
+    _setupRealtimeSubscription();
+  }
+
+  void _setupRealtimeSubscription() {
+    _expensesSubscription = _expenseService.subscribeToExpensesChanges(
+      tripId: widget.tripId,
+      onUpdate: () {
+        if (mounted) _loadData();
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _expensesSubscription?.cancel();
+    _expenseService.unsubscribeFromExpenses(widget.tripId);
+    super.dispose();
   }
 
   Future<void> _loadData() async {

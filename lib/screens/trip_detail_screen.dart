@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:larga/models/trip.dart';
@@ -11,6 +12,7 @@ import 'package:larga/services/profile_service.dart';
 import 'package:larga/services/itinerary_service.dart';
 import 'package:larga/services/expense_service.dart';
 import 'package:larga/services/currency_service.dart';
+import 'package:larga/services/activity_log_service.dart';
 import 'package:larga/utils/snackbar_utils.dart';
 import 'package:larga/screens/edit_trip_screen.dart';
 import 'package:larga/screens/trip_members_screen.dart';
@@ -41,6 +43,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   final _itineraryService = ItineraryService();
   final _expenseService = ExpenseService();
   final _currencyService = CurrencyService();
+  final _activityLogService = ActivityLogService();
 
   Trip? _trip;
   bool _isLoading = true;
@@ -58,11 +61,74 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   Map<String, double>? _exchangeRates;
   double? _convertedTotalExpenses;
 
+  StreamSubscription<void>? _tripSubscription;
+  StreamSubscription<void>? _membersSubscription;
+  StreamSubscription<void>? _expensesSubscription;
+  StreamSubscription<void>? _itinerarySubscription;
+  StreamSubscription<void>? _activitySubscription;
+
   @override
   void initState() {
     super.initState();
     _trip = widget.initialTrip;
     _loadTrip();
+    _setupRealtimeSubscriptions();
+  }
+
+  void _setupRealtimeSubscriptions() {
+    _tripSubscription = _tripService.subscribeToTripChanges(
+      tripId: widget.tripId,
+      onUpdate: () {
+        if (mounted) _loadTrip();
+      },
+    );
+
+    _membersSubscription = _tripService.subscribeToTripMembersChanges(
+      tripId: widget.tripId,
+      onUpdate: () {
+        if (mounted) _loadTrip();
+      },
+    );
+
+    _expensesSubscription = _expenseService.subscribeToExpensesChanges(
+      tripId: widget.tripId,
+      onUpdate: () {
+        if (mounted) _loadTrip();
+      },
+    );
+
+    _itinerarySubscription = _itineraryService.subscribeToItineraryChanges(
+      tripId: widget.tripId,
+      onUpdate: () {
+        if (mounted) _loadTrip();
+      },
+    );
+
+    _activitySubscription = _activityLogService.subscribeToActivityLogChanges(
+      tripId: widget.tripId,
+      onUpdate: () {
+        if (mounted) setState(() {});
+      },
+    );
+  }
+
+  void _cleanupSubscriptions() {
+    _tripSubscription?.cancel();
+    _membersSubscription?.cancel();
+    _expensesSubscription?.cancel();
+    _itinerarySubscription?.cancel();
+    _activitySubscription?.cancel();
+    _tripService.unsubscribeFromTrip(widget.tripId);
+    _tripService.unsubscribeFromTripMembers(widget.tripId);
+    _expenseService.unsubscribeFromExpenses(widget.tripId);
+    _itineraryService.unsubscribeFromItinerary(widget.tripId);
+    _activityLogService.unsubscribeFromActivityLogs(widget.tripId);
+  }
+
+  @override
+  void dispose() {
+    _cleanupSubscriptions();
+    super.dispose();
   }
 
   Future<void> _loadTrip() async {

@@ -1,11 +1,14 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:larga/models/itinerary_item.dart';
 import 'package:larga/services/activity_log_service.dart';
+import 'package:larga/services/realtime_service.dart';
 
 class ItineraryService {
   final SupabaseClient _supabase = Supabase.instance.client;
   final ActivityLogService _activityLogService = ActivityLogService();
+  final RealtimeService _realtimeService = RealtimeService();
 
   String? get _currentUserId => _supabase.auth.currentUser?.id;
 
@@ -458,5 +461,29 @@ class ItineraryService {
       currency: item.currency,
       notes: item.notes,
     );
+  }
+
+  // ============================================================================
+  // REALTIME SUBSCRIPTIONS
+  // ============================================================================
+
+  /// Subscribe to real-time updates for itinerary items in a trip.
+  /// Returns a StreamSubscription that should be stored and cancelled in dispose().
+  StreamSubscription<void>? subscribeToItineraryChanges({
+    required String tripId,
+    required void Function() onUpdate,
+  }) {
+    final stream = _realtimeService.subscribeToItineraryItems(tripId);
+    if (stream == const Stream.empty()) return null;
+    
+    return stream.listen((payload) {
+      debugPrint('ItineraryService: Realtime itinerary change: ${payload.event}');
+      onUpdate();
+    });
+  }
+
+  /// Unsubscribe from itinerary updates for a trip
+  void unsubscribeFromItinerary(String tripId) {
+    _realtimeService.unsubscribeFromItineraryItems(tripId);
   }
 }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:larga/models/expense.dart';
@@ -5,6 +6,7 @@ import 'package:larga/models/itinerary_item.dart';
 import 'package:larga/services/activity_log_service.dart';
 import 'package:larga/services/profile_service.dart';
 import 'package:larga/services/itinerary_service.dart';
+import 'package:larga/services/realtime_service.dart';
 import 'package:larga/models/activity_log.dart';
 
 class ExpenseService {
@@ -12,6 +14,7 @@ class ExpenseService {
   final ActivityLogService _activityLogService = ActivityLogService();
   final ProfileService _profileService = ProfileService();
   final ItineraryService _itineraryService = ItineraryService();
+  final RealtimeService _realtimeService = RealtimeService();
 
   String? get _currentUserId => _supabase.auth.currentUser?.id;
 
@@ -444,5 +447,29 @@ class ExpenseService {
   /// Mark expense as unsettled
   Future<Expense> markAsUnsettled(String expenseId) async {
     return updateExpense(expenseId: expenseId, isSettled: false);
+  }
+
+  // ============================================================================
+  // REALTIME SUBSCRIPTIONS
+  // ============================================================================
+
+  /// Subscribe to real-time updates for expenses in a trip.
+  /// Returns a StreamSubscription that should be stored and cancelled in dispose().
+  StreamSubscription<void>? subscribeToExpensesChanges({
+    required String tripId,
+    required void Function() onUpdate,
+  }) {
+    final stream = _realtimeService.subscribeToExpenses(tripId);
+    if (stream == const Stream.empty()) return null;
+    
+    return stream.listen((payload) {
+      debugPrint('ExpenseService: Realtime expense change: ${payload.event}');
+      onUpdate();
+    });
+  }
+
+  /// Unsubscribe from expense updates for a trip
+  void unsubscribeFromExpenses(String tripId) {
+    _realtimeService.unsubscribeFromExpenses(tripId);
   }
 }

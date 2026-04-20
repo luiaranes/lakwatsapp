@@ -14,10 +14,14 @@ class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
   @override
-  State<ProfileScreen> createState() => _ProfileScreenState();
+  ProfileScreenState createState() => ProfileScreenState();
 }
 
-class _ProfileScreenState extends State<ProfileScreen> {
+class ProfileScreenState extends State<ProfileScreen> {
+  /// Public method to refresh data when tab is selected
+  void refreshData() {
+    _loadProfile();
+  }
   final _authService = AuthService();
   final _profileService = ProfileService();
   final _friendshipService = FriendshipService();

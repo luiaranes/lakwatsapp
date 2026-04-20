@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:larga/models/trip.dart';
@@ -35,11 +36,30 @@ class _ItineraryScreenState extends State<ItineraryScreen> {
   int _totalDays = 1;
   int _currentDayIndex = 0;
 
+  StreamSubscription<void>? _itinerarySubscription;
+
   @override
   void initState() {
     super.initState();
     _trip = widget.trip;
     _loadData();
+    _setupRealtimeSubscription();
+  }
+
+  void _setupRealtimeSubscription() {
+    _itinerarySubscription = _itineraryService.subscribeToItineraryChanges(
+      tripId: widget.tripId,
+      onUpdate: () {
+        if (mounted) _loadData();
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _itinerarySubscription?.cancel();
+    _itineraryService.unsubscribeFromItinerary(widget.tripId);
+    super.dispose();
   }
 
   Future<void> _loadData() async {

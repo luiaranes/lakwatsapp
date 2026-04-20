@@ -1,9 +1,12 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:larga/models/activity_log.dart';
+import 'package:larga/services/realtime_service.dart';
 
 class ActivityLogService {
   final SupabaseClient _supabase = Supabase.instance.client;
+  final RealtimeService _realtimeService = RealtimeService();
 
   String? get _currentUserId => _supabase.auth.currentUser?.id;
 
@@ -318,5 +321,29 @@ class ActivityLogService {
         if (changes != null) 'changes': changes,
       },
     );
+  }
+
+  // ============================================================================
+  // REALTIME SUBSCRIPTIONS
+  // ============================================================================
+
+  /// Subscribe to real-time updates for activity logs in a trip.
+  /// Returns a StreamSubscription that should be stored and cancelled in dispose().
+  StreamSubscription<void>? subscribeToActivityLogChanges({
+    required String tripId,
+    required void Function() onUpdate,
+  }) {
+    final stream = _realtimeService.subscribeToActivityLogs(tripId);
+    if (stream == const Stream.empty()) return null;
+    
+    return stream.listen((payload) {
+      debugPrint('ActivityLogService: Realtime activity log change: ${payload.event}');
+      onUpdate();
+    });
+  }
+
+  /// Unsubscribe from activity log updates for a trip
+  void unsubscribeFromActivityLogs(String tripId) {
+    _realtimeService.unsubscribeFromActivityLogs(tripId);
   }
 }

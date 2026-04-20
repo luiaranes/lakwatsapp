@@ -1,12 +1,15 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:larga/models/trip.dart';
 import 'package:larga/models/trip_member.dart';
 import 'package:larga/services/activity_log_service.dart';
+import 'package:larga/services/realtime_service.dart';
 
 class TripService {
   final SupabaseClient _supabase = Supabase.instance.client;
   final ActivityLogService _activityLogService = ActivityLogService();
+  final RealtimeService _realtimeService = RealtimeService();
 
   String? get _currentUserId => _supabase.auth.currentUser?.id;
   
@@ -656,5 +659,68 @@ class TripService {
       debugPrint('TripService: Error checking membership: $e');
       return false;
     }
+  }
+
+  // ============================================================================
+  // REALTIME SUBSCRIPTIONS
+  // ============================================================================
+
+  /// Subscribe to real-time updates for all trips the user is a member of.
+  /// Returns a StreamSubscription that should be stored and cancelled in dispose().
+  StreamSubscription<void>? subscribeToTripsChanges({
+    required void Function() onUpdate,
+  }) {
+    final stream = _realtimeService.subscribeToTrips();
+    if (stream == const Stream.empty()) return null;
+    
+    return stream.listen((payload) {
+      debugPrint('TripService: Realtime trip change: ${payload.event}');
+      onUpdate();
+    });
+  }
+
+  /// Subscribe to real-time updates for a specific trip.
+  /// Returns a StreamSubscription that should be stored and cancelled in dispose().
+  StreamSubscription<void>? subscribeToTripChanges({
+    required String tripId,
+    required void Function() onUpdate,
+  }) {
+    final stream = _realtimeService.subscribeToTrip(tripId);
+    if (stream == const Stream.empty()) return null;
+    
+    return stream.listen((payload) {
+      debugPrint('TripService: Realtime single trip change: ${payload.event}');
+      onUpdate();
+    });
+  }
+
+  /// Subscribe to real-time updates for trip members.
+  /// Returns a StreamSubscription that should be stored and cancelled in dispose().
+  StreamSubscription<void>? subscribeToTripMembersChanges({
+    required String tripId,
+    required void Function() onUpdate,
+  }) {
+    final stream = _realtimeService.subscribeToTripMembers(tripId);
+    if (stream == const Stream.empty()) return null;
+    
+    return stream.listen((payload) {
+      debugPrint('TripService: Realtime trip members change: ${payload.event}');
+      onUpdate();
+    });
+  }
+
+  /// Unsubscribe from all trips updates (not filtered by tripId)
+  void unsubscribeFromTrips() {
+    _realtimeService.unsubscribeFromTrips();
+  }
+
+  /// Unsubscribe from a specific trip's updates
+  void unsubscribeFromTrip(String tripId) {
+    _realtimeService.unsubscribeFromTrip(tripId);
+  }
+
+  /// Unsubscribe from trip members updates
+  void unsubscribeFromTripMembers(String tripId) {
+    _realtimeService.unsubscribeFromTripMembers(tripId);
   }
 }
