@@ -299,4 +299,9 @@ class TripDestinationWithDetails {
   DestinationCategory get category => destination?.category ?? DestinationCategory.other;
   List<String> get photos => destination?.photos ?? [];
   double? get averageRating => destination?.averageRating;
+
+  /// True when the linked [Destination] has latitude/longitude for map pins.
+  bool get hasMapPin => destination?.hasCoordinates ?? false;
+  double? get latitude => destination?.latitude;
+  double? get longitude => destination?.longitude;
 }

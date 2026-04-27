@@ -4,6 +4,8 @@ import 'package:larga/models/trip.dart';
 import 'package:larga/models/itinerary_item.dart';
 import 'package:larga/services/itinerary_service.dart';
 import 'package:larga/utils/snackbar_utils.dart';
+import 'package:larga/widgets/lakwa_map_view.dart';
+import 'package:larga/screens/single_location_map_screen.dart';
 
 class AddEditItineraryItemScreen extends StatefulWidget {
   final String tripId;
@@ -387,6 +389,60 @@ class _AddEditItineraryItemScreenState extends State<AddEditItineraryItemScreen>
               textCapitalization: TextCapitalization.words,
             ),
             const SizedBox(height: 16),
+
+            // Map preview when this activity was saved with coordinates (e.g. AI quick add)
+            if (widget.existingItem != null && widget.existingItem!.hasLocation) ...[
+              Text(
+                'Map',
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              LakwaMapView(
+                height: 200,
+                pins: [
+                  LakwaMapMarker(
+                    id: widget.existingItem!.id,
+                    latitude: widget.existingItem!.latitude!,
+                    longitude: widget.existingItem!.longitude!,
+                    title: _titleController.text.trim().isEmpty
+                        ? widget.existingItem!.title
+                        : _titleController.text.trim(),
+                    snippet: _locationController.text.trim().isEmpty
+                        ? widget.existingItem!.location
+                        : _locationController.text.trim(),
+                  ),
+                ],
+                showMyLocation: true,
+                initialZoom: 15,
+              ),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: () {
+                    final item = widget.existingItem!;
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (context) => SingleLocationMapScreen(
+                          title: _titleController.text.trim().isEmpty
+                              ? item.title
+                              : _titleController.text.trim(),
+                          subtitle: _locationController.text.trim().isEmpty
+                              ? item.location
+                              : _locationController.text.trim(),
+                          latitude: item.latitude!,
+                          longitude: item.longitude!,
+                        ),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.open_in_full, size: 18),
+                  label: const Text('Open full screen'),
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
 
             // Estimated cost
             Row(

@@ -50,6 +50,7 @@ dependencies:
   # Speech-to-text
   liquid_speech: ^0.1.1
   speech_to_text: ^7.0.0
+  google_maps_flutter: ^2.17.0
 
 dev_dependencies:
   flutter_test:

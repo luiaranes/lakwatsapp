@@ -4,6 +4,7 @@ import 'package:larga/services/destination_service.dart';
 import 'package:larga/widgets/skeleton_widgets.dart';
 import 'package:larga/screens/add_to_trip_sheet.dart';
 import 'package:larga/screens/plan_trip_screen.dart';
+import 'package:larga/screens/single_location_map_screen.dart';
 
 class DestinationDetailScreen extends StatefulWidget {
   final String destinationId;
@@ -315,7 +316,16 @@ class _DestinationDetailScreenState extends State<DestinationDetailScreen> {
               if (dest.hasCoordinates)
                 IconButton(
                   onPressed: () {
-                    // TODO: Open in maps
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (context) => SingleLocationMapScreen(
+                          title: dest.name,
+                          subtitle: dest.fullLocation,
+                          latitude: dest.latitude!,
+                          longitude: dest.longitude!,
+                        ),
+                      ),
+                    );
                   },
                   icon: const Icon(Icons.map),
                   tooltip: 'View on map',

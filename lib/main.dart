@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:ui' show PlatformDispatcher;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -9,6 +11,20 @@ import 'package:larga/utils/url_helper.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  FlutterError.onError = (FlutterErrorDetails details) {
+    FlutterError.presentError(details);
+    debugPrint('FlutterError: ${details.exceptionAsString()}');
+    if (details.stack != null) {
+      debugPrint('$details.stack');
+    }
+  };
+
+  PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
+    debugPrint('Uncaught async error: $error');
+    debugPrint('$stack');
+    return true;
+  };
 
   try {
     await dotenv.load(fileName: ".env");
@@ -24,7 +40,13 @@ Future<void> main() async {
     ),
   );
 
-  runApp(const MyApp());
+  runZonedGuarded(
+    () => runApp(const MyApp()),
+    (error, stack) {
+      debugPrint('Zone error: $error');
+      debugPrint('$stack');
+    },
+  );
 }
 
 class MyApp extends StatelessWidget {
