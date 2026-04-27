@@ -60,6 +60,10 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>Lakwatsapp needs camera access to take profile photos, capture trip moments, and scan receipts for expense tracking.</string>
+	<key>GOOGLE_MAPS_API_KEY</key>
+	<string>$(GOOGLE_MAPS_API_KEY)</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Lakwatsapp uses your location to show where you are on trip and destination maps.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Lakwatsapp needs microphone access to use voice input for quick expense entry.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

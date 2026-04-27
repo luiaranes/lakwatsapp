@@ -13,12 +13,14 @@ import 'package:larga/services/itinerary_service.dart';
 import 'package:larga/services/expense_service.dart';
 import 'package:larga/services/currency_service.dart';
 import 'package:larga/services/activity_log_service.dart';
+import 'package:larga/services/trip_destination_service.dart';
 import 'package:larga/utils/snackbar_utils.dart';
 import 'package:larga/screens/edit_trip_screen.dart';
 import 'package:larga/screens/trip_members_screen.dart';
 import 'package:larga/screens/invite_member_sheet.dart';
 import 'package:larga/screens/itinerary_screen.dart';
 import 'package:larga/screens/expenses_screen.dart';
+import 'package:larga/screens/trip_map_screen.dart';
 import 'package:larga/widgets/activity_log_list.dart';
 import 'package:larga/widgets/skeleton_widgets.dart';
 
@@ -44,6 +46,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   final _expenseService = ExpenseService();
   final _currencyService = CurrencyService();
   final _activityLogService = ActivityLogService();
+  final _tripDestinationService = TripDestinationService();
 
   Trip? _trip;
   bool _isLoading = true;
@@ -60,6 +63,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   Map<String, UserProfile> _expensePayerProfiles = {};
   Map<String, double>? _exchangeRates;
   double? _convertedTotalExpenses;
+  List<TripDestinationWithDetails> _tripDestinations = const [];
 
   StreamSubscription<void>? _tripSubscription;
   StreamSubscription<void>? _membersSubscription;
@@ -189,8 +193,8 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
         _isLoading = false;
       });
 
-      // Load exchange rates if there are expenses in different currencies
       _loadExchangeRates(expenses);
+      _loadTripDestinations();
     } catch (e) {
       if (!mounted) return;
       setState(() => _isLoading = false);
@@ -235,6 +239,19 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
       }
     } catch (e) {
       // Silently fail - conversion is optional
+    }
+  }
+
+  /// Trip destinations only feed the optional map; failures must not block trip UI.
+  Future<void> _loadTripDestinations() async {
+    try {
+      final list = await _tripDestinationService.getTripDestinations(widget.tripId);
+      if (!mounted) return;
+      setState(() => _tripDestinations = list);
+    } catch (e) {
+      debugPrint('TripDetailScreen: trip destinations unavailable (map may be empty): $e');
+      if (!mounted) return;
+      setState(() => _tripDestinations = const []);
     }
   }
 
@@ -427,6 +444,19 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
               onPressed: () => Navigator.of(context).pop(_hasChanges),
             ),
             actions: [
+              if (!_isLoading)
+                IconButton(
+                  icon: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.3),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.map_outlined, color: Colors.white, size: 20),
+                  ),
+                  onPressed: _openTripMap,
+                  tooltip: 'Trip map',
+                ),
               if (_canEdit)
                 IconButton(
                   icon: Container(
@@ -768,6 +798,18 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
       ),
     );
     _loadTrip();
+  }
+
+  Future<void> _openTripMap() async {
+    if (_trip == null) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (context) => TripMapScreen(
+          tripTitle: _trip!.title,
+          destinations: _tripDestinations,
+        ),
+      ),
+    );
   }
 
   Widget _buildItinerarySection() {
