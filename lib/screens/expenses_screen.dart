@@ -1,14 +1,16 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:larga/models/trip.dart';
 import 'package:larga/models/expense.dart';
 import 'package:larga/models/expense_split.dart';
+import 'package:larga/models/trip_email_alias.dart';
 import 'package:larga/models/user_profile.dart';
 import 'package:larga/models/itinerary_item.dart';
 import 'package:larga/services/expense_service.dart';
 import 'package:larga/services/expense_split_service.dart';
+import 'package:larga/services/email_forwarding_service.dart';
 import 'package:larga/services/trip_service.dart';
 import 'package:larga/services/profile_service.dart';
 import 'package:larga/services/itinerary_service.dart';
@@ -23,11 +25,7 @@ class ExpensesScreen extends StatefulWidget {
   final String tripId;
   final Trip? trip;
 
-  const ExpensesScreen({
-    super.key,
-    required this.tripId,
-    this.trip,
-  });
+  const ExpensesScreen({super.key, required this.tripId, this.trip});
 
   @override
   State<ExpensesScreen> createState() => _ExpensesScreenState();
@@ -36,6 +34,7 @@ class ExpensesScreen extends StatefulWidget {
 class _ExpensesScreenState extends State<ExpensesScreen> {
   final _expenseService = ExpenseService();
   final _expenseSplitService = ExpenseSplitService();
+  final _emailForwardingService = EmailForwardingService();
   final _tripService = TripService();
   final _profileService = ProfileService();
   final _itineraryService = ItineraryService();
@@ -98,12 +97,14 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
       final payerIds = expenses.map((e) => e.paidByUserId).toSet().toList();
       final profiles = await _profileService.getProfilesByAuthIds(payerIds);
       final profileMap = {for (var p in profiles) p.authId: p};
-      
+
       // Create a map of itinerary items
       final itineraryMap = {for (var item in itineraryItems) item.id: item};
 
       // Load expense splits
-      final allSplits = await _expenseSplitService.getSplitsForTrip(widget.tripId);
+      final allSplits = await _expenseSplitService.getSplitsForTrip(
+        widget.tripId,
+      );
       final splitsMap = <String, List<ExpenseSplit>>{};
       for (final split in allSplits) {
         splitsMap.putIfAbsent(split.expenseId, () => []).add(split);
@@ -133,18 +134,23 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
   Future<void> _loadExchangeRates() async {
     final tripCurrency = _trip?.currency ?? 'PHP';
     final currencies = _expenses.map((e) => e.currency).toSet();
-    
+
     debugPrint('ExpensesScreen: Trip currency: $tripCurrency');
     debugPrint('ExpensesScreen: Expense currencies: $currencies');
-    
+
     // Check if any expense is in a different currency
     final hasDifferentCurrency = currencies.any((c) => c != tripCurrency);
-    
+
     // If no expenses or all expenses are in trip currency, no conversion needed
     if (!hasDifferentCurrency) {
-      debugPrint('ExpensesScreen: All expenses in trip currency, no conversion needed');
+      debugPrint(
+        'ExpensesScreen: All expenses in trip currency, no conversion needed',
+      );
       setState(() {
-        _convertedTotal = _expenses.fold<double>(0.0, (sum, e) => sum + e.amount);
+        _convertedTotal = _expenses.fold<double>(
+          0.0,
+          (sum, e) => sum + e.amount,
+        );
       });
       return;
     }
@@ -156,16 +162,18 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
     try {
       // Get exchange rates from trip currency
       final rates = await _currencyService.getExchangeRates(tripCurrency);
-      
+
       if (rates != null && mounted) {
         debugPrint('ExpensesScreen: Got ${rates.length} exchange rates');
-        
+
         // Calculate converted total
         double total = 0;
         for (final expense in _expenses) {
           if (expense.currency == tripCurrency) {
             total += expense.amount;
-            debugPrint('ExpensesScreen: ${expense.currency} ${expense.amount} (no conversion)');
+            debugPrint(
+              'ExpensesScreen: ${expense.currency} ${expense.amount} (no conversion)',
+            );
           } else {
             // Convert from expense currency to trip currency
             // We need rates FROM the expense currency TO trip currency
@@ -174,9 +182,13 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
             if (rateToExpenseCurrency != null && rateToExpenseCurrency > 0) {
               final converted = expense.amount / rateToExpenseCurrency;
               total += converted;
-              debugPrint('ExpensesScreen: ${expense.currency} ${expense.amount} -> $tripCurrency $converted (rate: $rateToExpenseCurrency)');
+              debugPrint(
+                'ExpensesScreen: ${expense.currency} ${expense.amount} -> $tripCurrency $converted (rate: $rateToExpenseCurrency)',
+              );
             } else {
-              debugPrint('ExpensesScreen: No rate found for ${expense.currency}');
+              debugPrint(
+                'ExpensesScreen: No rate found for ${expense.currency}',
+              );
             }
           }
         }
@@ -243,6 +255,25 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                 leading: Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.tertiaryContainer,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    Icons.forward_to_inbox_outlined,
+                    color: Theme.of(context).colorScheme.tertiary,
+                  ),
+                ),
+                title: const Text('Email Forwarding'),
+                subtitle: const Text('Forward receipts to auto-add expenses'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showEmailForwardingDialog();
+                },
+              ),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
                     color: Theme.of(context).colorScheme.secondaryContainer,
                     borderRadius: BorderRadius.circular(12),
                   ),
@@ -268,10 +299,8 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
   Future<void> _quickAddExpense() async {
     final result = await Navigator.of(context).push<Expense>(
       MaterialPageRoute(
-        builder: (context) => QuickAddExpenseScreen(
-          tripId: widget.tripId,
-          trip: _trip,
-        ),
+        builder: (context) =>
+            QuickAddExpenseScreen(tripId: widget.tripId, trip: _trip),
       ),
     );
 
@@ -283,10 +312,8 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
   Future<void> _addExpense() async {
     final result = await Navigator.of(context).push<Expense>(
       MaterialPageRoute(
-        builder: (context) => AddEditExpenseScreen(
-          tripId: widget.tripId,
-          trip: _trip,
-        ),
+        builder: (context) =>
+            AddEditExpenseScreen(tripId: widget.tripId, trip: _trip),
       ),
     );
 
@@ -295,10 +322,141 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
     }
   }
 
+  Future<void> _showEmailForwardingDialog() async {
+    try {
+      final alias = await _emailForwardingService.getOrCreateTripEmailAlias(
+        widget.tripId,
+      );
+      if (!mounted) return;
+      await _presentEmailForwardingDialog(alias);
+    } catch (e) {
+      if (!mounted) return;
+      SnackBarUtils.showError(context, 'Failed to load trip email address');
+    }
+  }
+
+  Future<void> _presentEmailForwardingDialog(
+    TripEmailAlias initialAlias,
+  ) async {
+    TripEmailAlias currentAlias = initialAlias;
+    bool isRegenerating = false;
+    final isOwner = _trip?.ownerId == _tripService.currentUserId;
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Forward Receipts by Email'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Forward receipt emails to this address. We parse content and auto-add expense to this trip.',
+              ),
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: SelectableText(
+                  currentAlias.emailAddress,
+                  style: const TextStyle(
+                    fontFamily: 'monospace',
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              if (currentAlias.lastRegeneratedAt != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Last regenerated: ${DateFormat.yMMMd().add_jm().format(currentAlias.lastRegeneratedAt!.toLocal())}',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                ),
+              ],
+              const SizedBox(height: 12),
+              const Text(
+                'Sender must be trip member email. Expense date must match trip window (+/- 30 days).',
+                style: TextStyle(fontSize: 12),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Webhook: call edge function `process-forwarded-email` with header `x-email-webhook-secret`.',
+                style: TextStyle(fontSize: 12),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: isRegenerating ? null : () => Navigator.pop(context),
+              child: const Text('Close'),
+            ),
+            FilledButton.tonalIcon(
+              onPressed: isRegenerating
+                  ? null
+                  : () async {
+                      await Clipboard.setData(
+                        ClipboardData(text: currentAlias.emailAddress),
+                      );
+                      if (!mounted) return;
+                      SnackBarUtils.showSuccess(this.context, 'Email copied');
+                    },
+              icon: const Icon(Icons.copy_outlined),
+              label: const Text('Copy'),
+            ),
+            if (isOwner)
+              FilledButton.icon(
+                onPressed: isRegenerating
+                    ? null
+                    : () async {
+                        setDialogState(() => isRegenerating = true);
+                        try {
+                          final updatedAlias = await _emailForwardingService
+                              .regenerateTripEmailAlias(widget.tripId);
+                          currentAlias = updatedAlias;
+                          if (mounted) {
+                            SnackBarUtils.showSuccess(
+                              this.context,
+                              'Email address regenerated',
+                            );
+                          }
+                        } catch (e) {
+                          if (mounted) {
+                            SnackBarUtils.showError(
+                              this.context,
+                              'Failed to regenerate email address',
+                            );
+                          }
+                        } finally {
+                          if (context.mounted) {
+                            setDialogState(() => isRegenerating = false);
+                          }
+                        }
+                      },
+                icon: isRegenerating
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.refresh),
+                label: const Text('Regenerate'),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _editExpense(Expense expense) async {
     // Show confirmation if editing someone else's expense
     if (expense.paidByUserId != _tripService.currentUserId) {
-      final payerName = _getPayerName(expense.paidByUserId).replaceAll(' paid', '');
+      final payerName = _getPayerName(
+        expense.paidByUserId,
+      ).replaceAll(' paid', '');
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
@@ -322,6 +480,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
       if (confirmed != true) return;
     }
 
+    if (!mounted) return;
     final result = await Navigator.of(context).push<Expense>(
       MaterialPageRoute(
         builder: (context) => AddEditExpenseScreen(
@@ -348,22 +507,19 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
       'KRW' => '₩',
       _ => currency,
     };
-    final formatter = NumberFormat.currency(
-      symbol: symbol,
-      decimalDigits: 2,
-    );
+    final formatter = NumberFormat.currency(symbol: symbol, decimalDigits: 2);
     return formatter.format(amount);
   }
 
   String _getPayerName(String userId) {
     final profile = _userProfiles[userId];
     if (profile == null) return 'Unknown';
-    
+
     // Check if this is the current user
     if (userId == _tripService.currentUserId) {
       return 'You paid';
     }
-    
+
     final firstName = profile.displayName?.split(' ').first ?? 'Someone';
     return '$firstName paid';
   }
@@ -372,9 +528,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
   Widget build(BuildContext context) {
     if (_isLoading) {
       return Scaffold(
-        appBar: AppBar(
-          title: Text(_trip?.title ?? 'Expenses'),
-        ),
+        appBar: AppBar(title: Text(_trip?.title ?? 'Expenses')),
         body: const ExpenseListSkeleton(),
       );
     }
@@ -405,10 +559,8 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
   void _openBalances() {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => ExpenseBalancesScreen(
-          tripId: widget.tripId,
-          trip: _trip,
-        ),
+        builder: (context) =>
+            ExpenseBalancesScreen(tripId: widget.tripId, trip: _trip),
       ),
     );
   }
@@ -435,18 +587,12 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
             const SizedBox(height: 24),
             const Text(
               'No expenses yet',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
             Text(
               'Track your trip spending by adding expenses',
-              style: TextStyle(
-                color: Colors.grey[600],
-                fontSize: 15,
-              ),
+              style: TextStyle(color: Colors.grey[600], fontSize: 15),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),
@@ -477,30 +623,25 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
     return CustomScrollView(
       slivers: [
         // Budget summary card
-        SliverToBoxAdapter(
-          child: _buildBudgetSummary(),
-        ),
+        SliverToBoxAdapter(child: _buildBudgetSummary()),
 
         // Expenses list grouped by date
         SliverPadding(
           padding: const EdgeInsets.only(bottom: 100),
           sliver: SliverList(
-            delegate: SliverChildBuilderDelegate(
-              (context, index) {
-                final dateKey = sortedDates[index];
-                final dateExpenses = groupedExpenses[dateKey]!;
-                final date = DateTime.parse(dateKey);
+            delegate: SliverChildBuilderDelegate((context, index) {
+              final dateKey = sortedDates[index];
+              final dateExpenses = groupedExpenses[dateKey]!;
+              final date = DateTime.parse(dateKey);
 
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildDateHeader(date, dateExpenses),
-                    ...dateExpenses.map((expense) => _buildExpenseCard(expense)),
-                  ],
-                );
-              },
-              childCount: sortedDates.length,
-            ),
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildDateHeader(date, dateExpenses),
+                  ...dateExpenses.map((expense) => _buildExpenseCard(expense)),
+                ],
+              );
+            }, childCount: sortedDates.length),
           ),
         ),
       ],
@@ -510,21 +651,24 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
   Widget _buildBudgetSummary() {
     final hasBudget = _trip?.budget != null && _trip!.budget! > 0;
     final tripCurrency = _trip?.currency ?? 'PHP';
-    
+
     // Group expenses by currency
     final currencyTotals = <String, double>{};
     for (final expense in _expenses) {
-      currencyTotals[expense.currency] = 
+      currencyTotals[expense.currency] =
           (currencyTotals[expense.currency] ?? 0) + expense.amount;
     }
-    
+
     // Use converted total if available, otherwise use trip currency total
-    final totalForBudget = _convertedTotal ?? (currencyTotals[tripCurrency] ?? 0.0);
+    final totalForBudget =
+        _convertedTotal ?? (currencyTotals[tripCurrency] ?? 0.0);
     final remainingBudget = hasBudget ? _trip!.budget! - totalForBudget : 0.0;
     final isOverBudget = hasBudget && remainingBudget < 0;
     final hasMixedCurrencies = currencyTotals.length > 1;
     // Check if any expense currency is different from trip currency
-    final hasDifferentCurrency = currencyTotals.keys.any((c) => c != tripCurrency);
+    final hasDifferentCurrency = currencyTotals.keys.any(
+      (c) => c != tripCurrency,
+    );
     // Show converted total if we have conversion data AND currencies differ from trip
     final hasConvertedTotal = _convertedTotal != null && hasDifferentCurrency;
     // Need to show currency conversion info (loading or results)
@@ -537,14 +681,21 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
         gradient: LinearGradient(
           colors: isOverBudget
               ? [Colors.red[400]!, Colors.red[600]!]
-              : [Theme.of(context).colorScheme.primary, Theme.of(context).colorScheme.primaryContainer],
+              : [
+                  Theme.of(context).colorScheme.primary,
+                  Theme.of(context).colorScheme.primaryContainer,
+                ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: (isOverBudget ? Colors.red : Theme.of(context).colorScheme.primary).withValues(alpha: 0.3),
+            color:
+                (isOverBudget
+                        ? Colors.red
+                        : Theme.of(context).colorScheme.primary)
+                    .withValues(alpha: 0.3),
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),
@@ -564,7 +715,10 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(12),
@@ -632,7 +786,10 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                     runSpacing: 4,
                     children: currencyTotals.entries.map((entry) {
                       return Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.white.withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(8),
@@ -673,10 +830,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
           else
             // Single currency same as trip - show directly
             Text(
-              _formatCurrency(
-                currencyTotals.values.first,
-                tripCurrency,
-              ),
+              _formatCurrency(currencyTotals.values.first, tripCurrency),
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 32,
@@ -689,12 +843,14 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
             ClipRRect(
               borderRadius: BorderRadius.circular(4),
               child: LinearProgressIndicator(
-                value: _trip!.budget! > 0 
+                value: _trip!.budget! > 0
                     ? (totalForBudget / _trip!.budget!).clamp(0.0, 1.0)
                     : 0.0,
                 backgroundColor: Colors.white.withValues(alpha: 0.3),
                 valueColor: AlwaysStoppedAnimation(
-                  isOverBudget ? Colors.white : Colors.white.withValues(alpha: 0.9),
+                  isOverBudget
+                      ? Colors.white
+                      : Colors.white.withValues(alpha: 0.9),
                 ),
                 minHeight: 6,
               ),
@@ -761,7 +917,10 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
   Widget _buildDateHeader(DateTime date, List<Expense> expenses) {
     final tripCurrency = _trip?.currency ?? 'PHP';
     final isToday = DateUtils.isSameDay(date, DateTime.now());
-    final isYesterday = DateUtils.isSameDay(date, DateTime.now().subtract(const Duration(days: 1)));
+    final isYesterday = DateUtils.isSameDay(
+      date,
+      DateTime.now().subtract(const Duration(days: 1)),
+    );
 
     String dateText;
     if (isToday) {
@@ -775,17 +934,19 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
     // Group expenses by currency for the day total
     final currencyTotals = <String, double>{};
     for (final expense in expenses) {
-      currencyTotals[expense.currency] = 
+      currencyTotals[expense.currency] =
           (currencyTotals[expense.currency] ?? 0) + expense.amount;
     }
 
     // Check if any currency is different from trip currency
-    final hasDifferentCurrency = currencyTotals.keys.any((c) => c != tripCurrency);
+    final hasDifferentCurrency = currencyTotals.keys.any(
+      (c) => c != tripCurrency,
+    );
 
     // Calculate converted total for the day if we have exchange rates
     String dayTotalText;
     String? originalText;
-    
+
     if (!hasDifferentCurrency) {
       // All expenses are in trip currency
       final total = currencyTotals[tripCurrency] ?? 0.0;
@@ -804,7 +965,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
         }
       }
       dayTotalText = _formatCurrency(convertedTotal, tripCurrency);
-      
+
       // Show original amounts if there's only one different currency
       if (currencyTotals.length == 1) {
         final original = currencyTotals.entries.first;
@@ -849,10 +1010,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                 if (originalText != null)
                   Text(
                     originalText,
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: Colors.grey[500],
-                    ),
+                    style: TextStyle(fontSize: 11, color: Colors.grey[500]),
                     textAlign: TextAlign.right,
                   ),
               ],
@@ -875,8 +1033,10 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
       ),
       confirmDismiss: (_) async {
         final isOwnExpense = expense.paidByUserId == _tripService.currentUserId;
-        final payerName = _getPayerName(expense.paidByUserId).replaceAll(' paid', '');
-        
+        final payerName = _getPayerName(
+          expense.paidByUserId,
+        ).replaceAll(' paid', '');
+
         final confirmed = await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
@@ -932,7 +1092,9 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                   width: 44,
                   height: 44,
                   decoration: BoxDecoration(
-                    color: _getCategoryColor(expense.category).withValues(alpha: 0.15),
+                    color: _getCategoryColor(
+                      expense.category,
+                    ).withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Center(
@@ -984,7 +1146,8 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                           ),
                         ],
                       ),
-                      if (expense.itineraryItemId != null && _itineraryItems[expense.itineraryItemId] != null)
+                      if (expense.itineraryItemId != null &&
+                          _itineraryItems[expense.itineraryItemId] != null)
                         Padding(
                           padding: const EdgeInsets.only(top: 4),
                           child: Row(
@@ -997,9 +1160,12 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                               const SizedBox(width: 4),
                               Flexible(
                                 child: Text(
-                                  _itineraryItems[expense.itineraryItemId]!.title,
+                                  _itineraryItems[expense.itineraryItemId]!
+                                      .title,
                                   style: TextStyle(
-                                    color: Theme.of(context).colorScheme.primary,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.primary,
                                     fontSize: 12,
                                   ),
                                   maxLines: 1,
@@ -1010,13 +1176,18 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                           ),
                         ),
                       // Show split info
-                      if (_expenseSplits[expense.id] != null && _expenseSplits[expense.id]!.isNotEmpty)
+                      if (_expenseSplits[expense.id] != null &&
+                          _expenseSplits[expense.id]!.isNotEmpty)
                         Padding(
                           padding: const EdgeInsets.only(top: 4),
-                          child: _buildSplitInfo(expense, _expenseSplits[expense.id]!),
+                          child: _buildSplitInfo(
+                            expense,
+                            _expenseSplits[expense.id]!,
+                          ),
                         ),
                       // Show line items preview
-                      if (expense.lineItems != null && expense.lineItems!.isNotEmpty)
+                      if (expense.lineItems != null &&
+                          expense.lineItems!.isNotEmpty)
                         Padding(
                           padding: const EdgeInsets.only(top: 6),
                           child: _buildLineItemsPreview(expense),
@@ -1036,53 +1207,59 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                       ),
                     ),
                     // Show converted amount if expense is in different currency
-                    Builder(builder: (context) {
-                      final tripCurrency = _trip?.currency ?? 'PHP';
-                      if (expense.currency == tripCurrency) {
-                        return const SizedBox.shrink();
-                      }
-                      
-                      // Try to get conversion rate
-                      double? convertedAmount;
-                      if (_exchangeRates != null && _exchangeRates!.containsKey(expense.currency)) {
-                        final rate = _exchangeRates![expense.currency]!;
-                        if (rate > 0) {
-                          convertedAmount = expense.amount / rate;
+                    Builder(
+                      builder: (context) {
+                        final tripCurrency = _trip?.currency ?? 'PHP';
+                        if (expense.currency == tripCurrency) {
+                          return const SizedBox.shrink();
                         }
-                      }
-                      
-                      if (convertedAmount != null) {
-                        return Padding(
-                          padding: const EdgeInsets.only(top: 2),
-                          child: Text(
-                            '≈ ${_formatCurrency(convertedAmount, tripCurrency)}',
-                            style: TextStyle(
-                              color: Theme.of(context).colorScheme.primary,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
+
+                        // Try to get conversion rate
+                        double? convertedAmount;
+                        if (_exchangeRates != null &&
+                            _exchangeRates!.containsKey(expense.currency)) {
+                          final rate = _exchangeRates![expense.currency]!;
+                          if (rate > 0) {
+                            convertedAmount = expense.amount / rate;
+                          }
+                        }
+
+                        if (convertedAmount != null) {
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Text(
+                              '≈ ${_formatCurrency(convertedAmount, tripCurrency)}',
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.primary,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                              ),
                             ),
-                          ),
-                        );
-                      } else if (_isLoadingRates) {
-                        return Padding(
-                          padding: const EdgeInsets.only(top: 2),
-                          child: Text(
-                            'Converting...',
-                            style: TextStyle(
-                              color: Colors.grey[400],
-                              fontSize: 11,
-                              fontStyle: FontStyle.italic,
+                          );
+                        } else if (_isLoadingRates) {
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Text(
+                              'Converting...',
+                              style: TextStyle(
+                                color: Colors.grey[400],
+                                fontSize: 11,
+                                fontStyle: FontStyle.italic,
+                              ),
                             ),
-                          ),
-                        );
-                      } else {
-                        return const SizedBox.shrink();
-                      }
-                    }),
+                          );
+                        } else {
+                          return const SizedBox.shrink();
+                        }
+                      },
+                    ),
                     if (expense.isSettled)
                       Container(
                         margin: const EdgeInsets.only(top: 4),
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.green.withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(4),
@@ -1101,7 +1278,10 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                         onTap: () => _showReceiptImage(expense),
                         child: Container(
                           margin: const EdgeInsets.only(top: 4),
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
                           decoration: BoxDecoration(
                             color: Colors.blue.withValues(alpha: 0.15),
                             borderRadius: BorderRadius.circular(4),
@@ -1109,7 +1289,11 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                           child: const Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.receipt_outlined, size: 10, color: Colors.blue),
+                              Icon(
+                                Icons.receipt_outlined,
+                                size: 10,
+                                color: Colors.blue,
+                              ),
                               SizedBox(width: 2),
                               Text(
                                 'Receipt',
@@ -1135,9 +1319,10 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
 
   void _showReceiptImage(Expense expense) {
     if (expense.receiptUrl == null) return;
-    
-    final hasLineItems = expense.lineItems != null && expense.lineItems!.isNotEmpty;
-    
+
+    final hasLineItems =
+        expense.lineItems != null && expense.lineItems!.isNotEmpty;
+
     showDialog(
       context: context,
       builder: (context) => Dialog(
@@ -1190,7 +1375,10 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                       constraints: const BoxConstraints(maxHeight: 150),
                       child: ListView.builder(
                         shrinkWrap: true,
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
                         itemCount: expense.lineItems!.length,
                         itemBuilder: (context, index) {
                           final item = expense.lineItems![index];
@@ -1217,7 +1405,10 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                                 ),
                                 if (item.price != null)
                                   Text(
-                                    _formatCurrency(item.price!, expense.currency),
+                                    _formatCurrency(
+                                      item.price!,
+                                      expense.currency,
+                                    ),
                                     style: const TextStyle(
                                       fontSize: 13,
                                       fontWeight: FontWeight.w500,
@@ -1249,28 +1440,34 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                               height: 300,
                               alignment: Alignment.center,
                               child: CircularProgressIndicator(
-                                value: loadingProgress.expectedTotalBytes != null
+                                value:
+                                    loadingProgress.expectedTotalBytes != null
                                     ? loadingProgress.cumulativeBytesLoaded /
-                                        loadingProgress.expectedTotalBytes!
+                                          loadingProgress.expectedTotalBytes!
                                     : null,
                               ),
                             );
                           },
-                          errorBuilder: (_, __, ___) => Container(
-                            height: 200,
-                            alignment: Alignment.center,
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.broken_image, size: 48, color: Colors.grey[400]),
-                                const SizedBox(height: 8),
-                                Text(
-                                  'Failed to load receipt',
-                                  style: TextStyle(color: Colors.grey[600]),
+                          errorBuilder: (context, error, stackTrace) =>
+                              Container(
+                                height: 200,
+                                alignment: Alignment.center,
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Icons.broken_image,
+                                      size: 48,
+                                      color: Colors.grey[400],
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      'Failed to load receipt',
+                                      style: TextStyle(color: Colors.grey[600]),
+                                    ),
+                                  ],
                                 ),
-                              ],
-                            ),
-                          ),
+                              ),
                         ),
                       ),
                     ),
@@ -1313,33 +1510,32 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
             ],
           ),
           const SizedBox(height: 4),
-          ...displayItems.map((item) => Padding(
-                padding: const EdgeInsets.only(top: 2),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        item.description,
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: Colors.grey[700],
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+          ...displayItems.map(
+            (item) => Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      item.description,
+                      style: TextStyle(fontSize: 11, color: Colors.grey[700]),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (item.price != null)
+                    Text(
+                      _formatCurrency(item.price!, expense.currency),
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey[700],
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
-                    if (item.price != null)
-                      Text(
-                        _formatCurrency(item.price!, expense.currency),
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: Colors.grey[700],
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                  ],
-                ),
-              )),
+                ],
+              ),
+            ),
+          ),
           if (hasMore)
             Padding(
               padding: const EdgeInsets.only(top: 2),
@@ -1363,14 +1559,21 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
     final allSettled = settledCount == splitCount;
     final currentUserId = _tripService.currentUserId;
     final tripCurrency = _trip?.currency ?? 'PHP';
-    
-    final userSplit = splits.where((s) => s.userId == currentUserId).firstOrNull;
-    final owesAmount = userSplit != null && !userSplit.isSettled && userSplit.userId != expense.paidByUserId
+
+    final userSplit = splits
+        .where((s) => s.userId == currentUserId)
+        .firstOrNull;
+    final owesAmount =
+        userSplit != null &&
+            !userSplit.isSettled &&
+            userSplit.userId != expense.paidByUserId
         ? userSplit.amount
         : null;
 
     double? convertedOwesAmount;
-    if (owesAmount != null && expense.currency != tripCurrency && _exchangeRates != null) {
+    if (owesAmount != null &&
+        expense.currency != tripCurrency &&
+        _exchangeRates != null) {
       final rate = _exchangeRates![expense.currency];
       if (rate != null && rate > 0) {
         convertedOwesAmount = owesAmount / rate;
@@ -1386,19 +1589,14 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
         ),
         const SizedBox(width: 4),
         Text(
-          allSettled
-              ? 'Split settled'
-              : 'Split $splitCount ways',
+          allSettled ? 'Split settled' : 'Split $splitCount ways',
           style: TextStyle(
             fontSize: 12,
             color: allSettled ? Colors.green : Colors.orange[700],
           ),
         ),
         if (owesAmount != null) ...[
-          Text(
-            ' • ',
-            style: TextStyle(color: Colors.grey[400], fontSize: 12),
-          ),
+          Text(' • ', style: TextStyle(color: Colors.grey[400], fontSize: 12)),
           if (convertedOwesAmount != null)
             Text(
               'You owe ≈${_formatCurrency(convertedOwesAmount, tripCurrency)}',

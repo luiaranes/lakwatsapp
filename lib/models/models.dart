@@ -11,3 +11,4 @@ export 'friendship.dart';
 export 'activity_log.dart';
 export 'trip_preferences.dart';
 export 'draft_itinerary.dart';
+export 'trip_email_alias.dart';
