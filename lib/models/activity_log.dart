@@ -6,6 +6,7 @@ enum ActivityEntityType {
   tripMember,
   tripDestination,
   booking,
+  packingItem,
   other;
 
   static ActivityEntityType fromString(String value) {
@@ -17,6 +18,7 @@ enum ActivityEntityType {
       'trip_member' => ActivityEntityType.tripMember,
       'trip_destination' => ActivityEntityType.tripDestination,
       'booking' => ActivityEntityType.booking,
+      'packing_item' => ActivityEntityType.packingItem,
       _ => ActivityEntityType.other,
     };
   }
@@ -30,6 +32,7 @@ enum ActivityEntityType {
       ActivityEntityType.tripMember => 'trip_member',
       ActivityEntityType.tripDestination => 'trip_destination',
       ActivityEntityType.booking => 'booking',
+      ActivityEntityType.packingItem => 'packing_item',
       ActivityEntityType.other => 'other',
     };
   }
@@ -43,6 +46,7 @@ enum ActivityEntityType {
       ActivityEntityType.tripMember => 'Member',
       ActivityEntityType.tripDestination => 'Destination',
       ActivityEntityType.booking => 'Booking',
+      ActivityEntityType.packingItem => 'Packing',
       ActivityEntityType.other => 'Item',
     };
   }
@@ -56,6 +60,7 @@ enum ActivityEntityType {
       ActivityEntityType.tripMember => '👤',
       ActivityEntityType.tripDestination => '🗺️',
       ActivityEntityType.booking => '🎫',
+      ActivityEntityType.packingItem => '🧳',
       ActivityEntityType.other => '📝',
     };
   }

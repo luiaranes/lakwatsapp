@@ -7,8 +7,10 @@ import 'package:larga/models/user_profile.dart';
 import 'package:larga/models/itinerary_item.dart';
 import 'package:larga/models/expense.dart';
 import 'package:larga/models/booking.dart';
+import 'package:larga/models/packing_item.dart';
 import 'package:larga/services/trip_service.dart';
 import 'package:larga/services/booking_service.dart';
+import 'package:larga/services/packing_list_service.dart';
 import 'package:larga/services/storage_service.dart';
 import 'package:larga/services/profile_service.dart';
 import 'package:larga/services/itinerary_service.dart';
@@ -23,6 +25,7 @@ import 'package:larga/screens/invite_member_sheet.dart';
 import 'package:larga/screens/itinerary_screen.dart';
 import 'package:larga/screens/expenses_screen.dart';
 import 'package:larga/screens/bookings_screen.dart';
+import 'package:larga/screens/packing_list_screen.dart';
 import 'package:larga/screens/trip_map_screen.dart';
 import 'package:larga/widgets/activity_log_list.dart';
 import 'package:larga/widgets/skeleton_widgets.dart';
@@ -48,6 +51,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   final _itineraryService = ItineraryService();
   final _expenseService = ExpenseService();
   final _bookingService = BookingService();
+  final _packingListService = PackingListService();
   final _currencyService = CurrencyService();
   final _activityLogService = ActivityLogService();
   final _tripDestinationService = TripDestinationService();
@@ -61,6 +65,8 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   int _itineraryCount = 0;
   int _expenseCount = 0;
   int _bookingCount = 0;
+  int _packingCount = 0;
+  int _packingCheckedCount = 0;
   double _totalExpenses = 0;
   List<ItineraryItem> _recentItineraryItems = [];
   List<Expense> _recentExpenses = [];
@@ -75,6 +81,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   StreamSubscription<void>? _membersSubscription;
   StreamSubscription<void>? _expensesSubscription;
   StreamSubscription<void>? _bookingsSubscription;
+  StreamSubscription<void>? _packingSubscription;
   StreamSubscription<void>? _itinerarySubscription;
   StreamSubscription<void>? _activitySubscription;
 
@@ -115,6 +122,13 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
       },
     );
 
+    _packingSubscription = _packingListService.subscribeToPackingItemsChanges(
+      tripId: widget.tripId,
+      onUpdate: () {
+        if (mounted) _loadTrip();
+      },
+    );
+
     _itinerarySubscription = _itineraryService.subscribeToItineraryChanges(
       tripId: widget.tripId,
       onUpdate: () {
@@ -135,12 +149,14 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
     _membersSubscription?.cancel();
     _expensesSubscription?.cancel();
     _bookingsSubscription?.cancel();
+    _packingSubscription?.cancel();
     _itinerarySubscription?.cancel();
     _activitySubscription?.cancel();
     _tripService.unsubscribeFromTrip(widget.tripId);
     _tripService.unsubscribeFromTripMembers(widget.tripId);
     _expenseService.unsubscribeFromExpenses(widget.tripId);
     _bookingService.unsubscribeFromBookings(widget.tripId);
+    _packingListService.unsubscribeFromPackingItems(widget.tripId);
     _itineraryService.unsubscribeFromItinerary(widget.tripId);
     _activityLogService.unsubscribeFromActivityLogs(widget.tripId);
   }
@@ -161,6 +177,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
         _itineraryService.getItineraryItems(widget.tripId),
         _expenseService.getExpenses(widget.tripId),
         _bookingService.getBookings(widget.tripId),
+        _packingListService.getMyPackingItems(widget.tripId),
       ]);
 
       if (!mounted) return;
@@ -169,6 +186,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
       final itineraryItems = results[4] as List<ItineraryItem>;
       final expenses = results[5] as List<Expense>;
       final bookings = results[6] as List<Booking>;
+      final packingItems = results[7] as List<PackingItem>;
 
       // Load member profiles for preview (up to 4)
       final previewMembers = members.take(4).toList();
@@ -208,6 +226,8 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
         _recentExpenses = expenses.take(3).toList();
         _bookingCount = bookings.length;
         _recentBookings = bookings.take(3).toList();
+        _packingCount = packingItems.length;
+        _packingCheckedCount = packingItems.where((i) => i.isChecked).length;
         _memberPreviews = memberPreviews;
         _expensePayerProfiles = profileMap;
         _isLoading = false;
@@ -704,6 +724,9 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
                 _buildSectionHeader(context, 'Bookings', Icons.confirmation_number_outlined),
                 _buildBookingsSection(),
 
+                _buildSectionHeader(context, 'Packing', Icons.luggage_outlined),
+                _buildPackingSection(),
+
                 _buildSectionHeader(context, 'Expenses', Icons.receipt_outlined),
                 _buildExpensesSection(),
 
@@ -827,6 +850,18 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => BookingsScreen(
+          tripId: widget.tripId,
+          trip: _trip,
+        ),
+      ),
+    );
+    _loadTrip();
+  }
+
+  Future<void> _openPackingList() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => PackingListScreen(
           tripId: widget.tripId,
           trip: _trip,
         ),
@@ -1141,6 +1176,132 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
                   ],
                 ),
               ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPackingSection() {
+    if (_isLoading) {
+      return _buildSectionLoadingPlaceholder();
+    }
+
+    if (_packingCount == 0) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: InkWell(
+          onTap: _openPackingList,
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.grey[50],
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey[200]!),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(
+                    Icons.luggage_outlined,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Your packing list is empty',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 15,
+                        ),
+                      ),
+                      Text(
+                        'Add items for yourself or assign to trip members',
+                        style: TextStyle(color: Colors.grey[600], fontSize: 13),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right, color: Colors.grey[400]),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    final progress = _packingCount == 0 ? 0.0 : _packingCheckedCount / _packingCount;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: InkWell(
+        onTap: _openPackingList,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.grey[50],
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey[200]!),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Text('🧳', style: TextStyle(fontSize: 22)),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      '$_packingCheckedCount of $_packingCount packed',
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  Text(
+                    '${(progress * 100).round()}%',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.primary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              LinearProgressIndicator(
+                value: progress,
+                minHeight: 6,
+                borderRadius: BorderRadius.circular(3),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    'View packing list',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.primary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(
+                    Icons.arrow_forward,
+                    size: 16,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ],
+              ),
             ],
           ),
         ),
