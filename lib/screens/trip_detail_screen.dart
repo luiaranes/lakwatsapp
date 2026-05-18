@@ -6,7 +6,9 @@ import 'package:larga/models/trip_member.dart';
 import 'package:larga/models/user_profile.dart';
 import 'package:larga/models/itinerary_item.dart';
 import 'package:larga/models/expense.dart';
+import 'package:larga/models/booking.dart';
 import 'package:larga/services/trip_service.dart';
+import 'package:larga/services/booking_service.dart';
 import 'package:larga/services/storage_service.dart';
 import 'package:larga/services/profile_service.dart';
 import 'package:larga/services/itinerary_service.dart';
@@ -20,6 +22,7 @@ import 'package:larga/screens/trip_members_screen.dart';
 import 'package:larga/screens/invite_member_sheet.dart';
 import 'package:larga/screens/itinerary_screen.dart';
 import 'package:larga/screens/expenses_screen.dart';
+import 'package:larga/screens/bookings_screen.dart';
 import 'package:larga/screens/trip_map_screen.dart';
 import 'package:larga/widgets/activity_log_list.dart';
 import 'package:larga/widgets/skeleton_widgets.dart';
@@ -44,6 +47,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   final _profileService = ProfileService();
   final _itineraryService = ItineraryService();
   final _expenseService = ExpenseService();
+  final _bookingService = BookingService();
   final _currencyService = CurrencyService();
   final _activityLogService = ActivityLogService();
   final _tripDestinationService = TripDestinationService();
@@ -56,9 +60,11 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   int _memberCount = 1;
   int _itineraryCount = 0;
   int _expenseCount = 0;
+  int _bookingCount = 0;
   double _totalExpenses = 0;
   List<ItineraryItem> _recentItineraryItems = [];
   List<Expense> _recentExpenses = [];
+  List<Booking> _recentBookings = [];
   List<_MemberPreview> _memberPreviews = [];
   Map<String, UserProfile> _expensePayerProfiles = {};
   Map<String, double>? _exchangeRates;
@@ -68,6 +74,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   StreamSubscription<void>? _tripSubscription;
   StreamSubscription<void>? _membersSubscription;
   StreamSubscription<void>? _expensesSubscription;
+  StreamSubscription<void>? _bookingsSubscription;
   StreamSubscription<void>? _itinerarySubscription;
   StreamSubscription<void>? _activitySubscription;
 
@@ -101,6 +108,13 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
       },
     );
 
+    _bookingsSubscription = _bookingService.subscribeToBookingsChanges(
+      tripId: widget.tripId,
+      onUpdate: () {
+        if (mounted) _loadTrip();
+      },
+    );
+
     _itinerarySubscription = _itineraryService.subscribeToItineraryChanges(
       tripId: widget.tripId,
       onUpdate: () {
@@ -120,11 +134,13 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
     _tripSubscription?.cancel();
     _membersSubscription?.cancel();
     _expensesSubscription?.cancel();
+    _bookingsSubscription?.cancel();
     _itinerarySubscription?.cancel();
     _activitySubscription?.cancel();
     _tripService.unsubscribeFromTrip(widget.tripId);
     _tripService.unsubscribeFromTripMembers(widget.tripId);
     _expenseService.unsubscribeFromExpenses(widget.tripId);
+    _bookingService.unsubscribeFromBookings(widget.tripId);
     _itineraryService.unsubscribeFromItinerary(widget.tripId);
     _activityLogService.unsubscribeFromActivityLogs(widget.tripId);
   }
@@ -144,6 +160,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
         _tripService.getTripMembers(widget.tripId),
         _itineraryService.getItineraryItems(widget.tripId),
         _expenseService.getExpenses(widget.tripId),
+        _bookingService.getBookings(widget.tripId),
       ]);
 
       if (!mounted) return;
@@ -151,6 +168,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
       final members = results[3] as List<TripMember>;
       final itineraryItems = results[4] as List<ItineraryItem>;
       final expenses = results[5] as List<Expense>;
+      final bookings = results[6] as List<Booking>;
 
       // Load member profiles for preview (up to 4)
       final previewMembers = members.take(4).toList();
@@ -188,6 +206,8 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
         _expenseCount = expenses.length;
         _totalExpenses = expenses.fold(0.0, (sum, e) => sum + e.amount);
         _recentExpenses = expenses.take(3).toList();
+        _bookingCount = bookings.length;
+        _recentBookings = bookings.take(3).toList();
         _memberPreviews = memberPreviews;
         _expensePayerProfiles = profileMap;
         _isLoading = false;
@@ -681,6 +701,9 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
                 _buildSectionHeader(context, 'Itinerary', Icons.map_outlined),
                 _buildItinerarySection(),
 
+                _buildSectionHeader(context, 'Bookings', Icons.confirmation_number_outlined),
+                _buildBookingsSection(),
+
                 _buildSectionHeader(context, 'Expenses', Icons.receipt_outlined),
                 _buildExpensesSection(),
 
@@ -792,6 +815,18 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => ExpensesScreen(
+          tripId: widget.tripId,
+          trip: _trip,
+        ),
+      ),
+    );
+    _loadTrip();
+  }
+
+  Future<void> _openBookings() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => BookingsScreen(
           tripId: widget.tripId,
           trip: _trip,
         ),
@@ -975,56 +1010,198 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
     );
   }
 
-  Widget _buildExpensesSection() {
+  Widget _buildBookingsSection() {
     if (_isLoading) {
+      return _buildSectionLoadingPlaceholder();
+    }
+
+    if (_bookingCount == 0) {
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: InkWell(
+          onTap: _openBookings,
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.grey[50],
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey[200]!),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.indigo.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(Icons.confirmation_number_outlined, color: Colors.indigo[600]),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'No bookings yet',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 15,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Flights, hotels, and reservations',
+                        style: TextStyle(
+                          color: Colors.grey[600],
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right, color: Colors.grey[400]),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: InkWell(
+        onTap: _openBookings,
+        borderRadius: BorderRadius.circular(12),
         child: Container(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: Colors.grey[50],
             borderRadius: BorderRadius.circular(12),
             border: Border.all(color: Colors.grey[200]!),
           ),
-          child: Row(
+          child: Column(
             children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.grey[200],
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const SizedBox(width: 24, height: 24),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+              ...List.generate(_recentBookings.length, (index) {
+                final booking = _recentBookings[index];
+                return Padding(
+                  padding: EdgeInsets.only(
+                    bottom: index < _recentBookings.length - 1 ? 12 : 0,
+                  ),
+                  child: Row(
+                    children: [
+                      Text(booking.bookingType.icon, style: const TextStyle(fontSize: 22)),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              booking.title,
+                              style: const TextStyle(fontWeight: FontWeight.w600),
+                            ),
+                            if (booking.confirmationNumber != null)
+                              Text(
+                                booking.confirmationNumber!,
+                                style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                              ),
+                          ],
+                        ),
+                      ),
+                      if (booking.formattedAmount != null)
+                        Text(
+                          booking.formattedAmount!,
+                          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                        ),
+                    ],
+                  ),
+                );
+              }),
+              if (_bookingCount > 3) ...[
+                const SizedBox(height: 12),
+                const Divider(height: 1),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Container(
-                      width: 120,
-                      height: 14,
-                      decoration: BoxDecoration(
-                        color: Colors.grey[300],
-                        borderRadius: BorderRadius.circular(4),
+                    Text(
+                      'View all $_bookingCount bookings',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.primary,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    Container(
-                      width: 180,
-                      height: 12,
-                      decoration: BoxDecoration(
-                        color: Colors.grey[200],
-                        borderRadius: BorderRadius.circular(4),
-                      ),
+                    const SizedBox(width: 4),
+                    Icon(
+                      Icons.arrow_forward,
+                      size: 16,
+                      color: Theme.of(context).colorScheme.primary,
                     ),
                   ],
                 ),
-              ),
+              ],
             ],
           ),
         ),
-      );
+      ),
+    );
+  }
+
+  Widget _buildSectionLoadingPlaceholder() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.grey[50],
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.grey[200]!),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.grey[200],
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const SizedBox(width: 24, height: 24),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 120,
+                    height: 14,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Container(
+                    width: 180,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[200],
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildExpensesSection() {
+    if (_isLoading) {
+      return _buildSectionLoadingPlaceholder();
     }
 
     if (_expenseCount == 0) {

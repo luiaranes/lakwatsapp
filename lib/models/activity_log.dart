@@ -5,6 +5,7 @@ enum ActivityEntityType {
   expenseSplit,
   tripMember,
   tripDestination,
+  booking,
   other;
 
   static ActivityEntityType fromString(String value) {
@@ -15,6 +16,7 @@ enum ActivityEntityType {
       'expense_split' => ActivityEntityType.expenseSplit,
       'trip_member' => ActivityEntityType.tripMember,
       'trip_destination' => ActivityEntityType.tripDestination,
+      'booking' => ActivityEntityType.booking,
       _ => ActivityEntityType.other,
     };
   }
@@ -27,6 +29,7 @@ enum ActivityEntityType {
       ActivityEntityType.expenseSplit => 'expense_split',
       ActivityEntityType.tripMember => 'trip_member',
       ActivityEntityType.tripDestination => 'trip_destination',
+      ActivityEntityType.booking => 'booking',
       ActivityEntityType.other => 'other',
     };
   }
@@ -39,6 +42,7 @@ enum ActivityEntityType {
       ActivityEntityType.expenseSplit => 'Expense Split',
       ActivityEntityType.tripMember => 'Member',
       ActivityEntityType.tripDestination => 'Destination',
+      ActivityEntityType.booking => 'Booking',
       ActivityEntityType.other => 'Item',
     };
   }
@@ -51,6 +55,7 @@ enum ActivityEntityType {
       ActivityEntityType.expenseSplit => '💸',
       ActivityEntityType.tripMember => '👤',
       ActivityEntityType.tripDestination => '🗺️',
+      ActivityEntityType.booking => '🎫',
       ActivityEntityType.other => '📝',
     };
   }
