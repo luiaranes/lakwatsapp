@@ -352,7 +352,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                'Forward receipt emails to this address. We parse content and auto-add expense to this trip.',
+                'Forward receipt or booking confirmation emails to this address. Receipts become expenses; flight/hotel confirmations become bookings.',
               ),
               const SizedBox(height: 12),
               Container(
