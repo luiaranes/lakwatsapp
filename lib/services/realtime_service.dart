@@ -132,6 +132,24 @@ class RealtimeService {
     );
   }
 
+  Stream<RealtimePayload<Map<String, dynamic>>> subscribeToPackingItems(String tripId) {
+    return subscribeToTable(
+      table: 'trip_packing_items',
+      filterColumn: 'trip_id',
+      filterValue: tripId,
+    );
+  }
+
+  Stream<RealtimePayload<Map<String, dynamic>>> subscribeToUserNotifications(
+    String userId,
+  ) {
+    return subscribeToTable(
+      table: 'user_notifications',
+      filterColumn: 'user_id',
+      filterValue: userId,
+    );
+  }
+
   Stream<RealtimePayload<Map<String, dynamic>>> subscribeToActivityLogs(String tripId) {
     return subscribeToTable(
       table: 'activity_logs',
@@ -190,6 +208,14 @@ class RealtimeService {
 
   void unsubscribeFromBookings(String tripId) {
     _unsubscribe(_channelKey('trip_bookings', filter: tripId));
+  }
+
+  void unsubscribeFromPackingItems(String tripId) {
+    _unsubscribe(_channelKey('trip_packing_items', filter: tripId));
+  }
+
+  void unsubscribeFromUserNotifications(String userId) {
+    _unsubscribe(_channelKey('user_notifications', filter: userId));
   }
 
   void unsubscribeFromActivityLogs(String tripId) {

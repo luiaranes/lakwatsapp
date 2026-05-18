@@ -3,6 +3,7 @@ import 'package:larga/screens/explore_screen.dart';
 import 'package:larga/screens/trips_screen.dart';
 import 'package:larga/screens/feed_screen.dart';
 import 'package:larga/screens/profile_screen.dart';
+import 'package:larga/widgets/notification_listener.dart';
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -75,7 +76,8 @@ class _MainShellState extends State<MainShell> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return NotificationListenerScope(
+      child: Scaffold(
       body: IndexedStack(
         index: _currentIndex,
         children: _screens,
@@ -86,6 +88,7 @@ class _MainShellState extends State<MainShell> {
         destinations: _destinations,
         labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
       ),
+    ),
     );
   }
 }

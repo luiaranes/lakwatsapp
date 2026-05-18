@@ -7,6 +7,8 @@ import 'package:larga/models/itinerary_item.dart';
 import 'package:larga/services/trip_service.dart';
 import 'package:larga/services/itinerary_service.dart';
 import 'package:larga/services/trip_destination_service.dart';
+import 'package:larga/services/packing_list_service.dart';
+import 'package:larga/models/packing_item.dart';
 
 class GeneratedItinerary {
   final String tripTitle;
@@ -128,6 +130,7 @@ class TripPlanningService {
   final _tripService = TripService();
   final _itineraryService = ItineraryService();
   final _tripDestinationService = TripDestinationService();
+  final _packingListService = PackingListService();
 
   Future<GeneratedItinerary> generateItinerary({
     required Destination destination,
@@ -223,6 +226,22 @@ class TripPlanningService {
       }
 
       debugPrint('TripPlanningService: All itinerary items created');
+
+      if (generatedItinerary.packingSuggestions.isNotEmpty) {
+        await _packingListService.createItemsBulk(
+          tripId: trip.id,
+          items: generatedItinerary.packingSuggestions
+              .map(
+                (name) => SuggestedPackingItem(
+                  name: name,
+                  category: PackingCategory.other,
+                ),
+              )
+              .toList(),
+          source: PackingItemSource.ai,
+        );
+        debugPrint('TripPlanningService: Packing suggestions saved');
+      }
 
       return trip;
     } catch (e) {

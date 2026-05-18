@@ -13,3 +13,5 @@ export 'trip_preferences.dart';
 export 'draft_itinerary.dart';
 export 'trip_email_alias.dart';
 export 'booking.dart';
+export 'packing_item.dart';
+export 'user_notification.dart';

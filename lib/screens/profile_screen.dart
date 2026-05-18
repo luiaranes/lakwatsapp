@@ -7,6 +7,8 @@ import 'package:larga/models/user_profile.dart';
 import 'package:larga/screens/sign_in_screen.dart';
 import 'package:larga/screens/edit_profile_screen.dart';
 import 'package:larga/screens/friends_screen.dart';
+import 'package:larga/screens/notifications_screen.dart';
+import 'package:larga/services/notification_service.dart';
 import 'package:larga/utils/snackbar_utils.dart';
 import 'package:larga/widgets/skeleton_widgets.dart';
 
@@ -25,6 +27,7 @@ class ProfileScreenState extends State<ProfileScreen> {
   final _authService = AuthService();
   final _profileService = ProfileService();
   final _friendshipService = FriendshipService();
+  final _notificationService = NotificationService();
 
   UserProfile? _profile;
   bool _isLoading = true;
@@ -32,6 +35,7 @@ class ProfileScreenState extends State<ProfileScreen> {
   int _placesCount = 0;
   int _friendCount = 0;
   int _pendingRequestCount = 0;
+  int _unreadNotificationCount = 0;
 
   @override
   void initState() {
@@ -59,18 +63,21 @@ class ProfileScreenState extends State<ProfileScreen> {
       int placesCount = 0;
       int friendCount = 0;
       int pendingCount = 0;
-      
+      int unreadCount = 0;
+
       if (profile != null) {
         final results = await Future.wait([
           _profileService.getTripCount(profile.id),
           _profileService.getPlacesVisitedCount(profile.id),
           _friendshipService.getFriendCount(),
           _friendshipService.getPendingRequestCount(),
+          _notificationService.getUnreadCount(),
         ]);
-        tripCount = results[0];
-        placesCount = results[1];
-        friendCount = results[2];
-        pendingCount = results[3];
+        tripCount = results[0] as int;
+        placesCount = results[1] as int;
+        friendCount = results[2] as int;
+        pendingCount = results[3] as int;
+        unreadCount = results[4] as int;
       }
 
       if (mounted) {
@@ -80,6 +87,7 @@ class ProfileScreenState extends State<ProfileScreen> {
           _placesCount = placesCount;
           _friendCount = friendCount;
           _pendingRequestCount = pendingCount;
+          _unreadNotificationCount = unreadCount;
           _isLoading = false;
         });
       }
@@ -418,12 +426,20 @@ class ProfileScreenState extends State<ProfileScreen> {
                         subtitle: 'Manage cards and wallets',
                         onTap: () => _showComingSoon(context),
                       ),
-                      _MenuItem(
+                      _MenuItemWithBadge(
                         icon: Icons.notifications_outlined,
                         iconColor: Colors.orange,
                         title: 'Notifications',
-                        subtitle: 'Trip reminders and updates',
-                        onTap: () => _showComingSoon(context),
+                        subtitle: 'Packing assignments and trip updates',
+                        badgeCount: _unreadNotificationCount,
+                        onTap: () async {
+                          await Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (context) => const NotificationsScreen(),
+                            ),
+                          );
+                          _loadProfile();
+                        },
                         showDivider: false,
                       ),
                     ],
