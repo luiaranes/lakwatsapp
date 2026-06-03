@@ -13,6 +13,68 @@ class SuggestedPackingItem {
   SuggestedPackingItem({required this.name, required this.category});
 }
 
+/// Location context for a destination, sent to the AI so it can reason about
+/// the destination's typical seasonal climate (e.g. wet vs dry season, altitude)
+/// when suggesting weather-appropriate packing items.
+class PackingDestinationContext {
+  final String name;
+  final String? city;
+  final String? province;
+  final String? country;
+  final double? latitude;
+  final double? longitude;
+
+  PackingDestinationContext({
+    required this.name,
+    this.city,
+    this.province,
+    this.country,
+    this.latitude,
+    this.longitude,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        if (city != null) 'city': city,
+        if (province != null) 'province': province,
+        if (country != null) 'country': country,
+        if (latitude != null) 'latitude': latitude,
+        if (longitude != null) 'longitude': longitude,
+      };
+}
+
+const _monthNames = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
+
+/// The distinct month names a trip spans (inclusive), e.g. a Dec 28 – Jan 2
+/// trip yields ["December", "January"]. Lets the AI reason about the season.
+List<String> _travelMonths(DateTime? start, DateTime? end) {
+  if (start == null) return const [];
+  final last = end ?? start;
+  if (last.isBefore(start)) return [_monthNames[start.month - 1]];
+  final months = <String>[];
+  var cursor = DateTime(start.year, start.month);
+  final stop = DateTime(last.year, last.month);
+  while (!cursor.isAfter(stop)) {
+    final name = _monthNames[cursor.month - 1];
+    if (!months.contains(name)) months.add(name);
+    cursor = DateTime(cursor.year, cursor.month + 1);
+  }
+  return months;
+}
+
 enum PackingListView {
   myItems,
   assignedByMe,
@@ -225,7 +287,7 @@ class PackingListService {
     required String tripTitle,
     DateTime? startDate,
     DateTime? endDate,
-    List<String> destinations = const [],
+    List<PackingDestinationContext> destinations = const [],
     List<String> activityTitles = const [],
     List<String> existingItemNames = const [],
   }) async {
@@ -236,7 +298,8 @@ class PackingListService {
           'trip_title': tripTitle,
           'start_date': startDate?.toIso8601String().split('T').first,
           'end_date': endDate?.toIso8601String().split('T').first,
-          'destinations': destinations,
+          'destinations': destinations.map((d) => d.toJson()).toList(),
+          'travel_months': _travelMonths(startDate, endDate),
           'activity_titles': activityTitles,
           'existing_items': existingItemNames,
         },

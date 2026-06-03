@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:larga/models/destination.dart';
 import 'package:larga/models/packing_item.dart';
 import 'package:larga/models/trip.dart';
 import 'package:larga/models/trip_member.dart';
@@ -38,6 +39,12 @@ class _PackingListScreenState extends State<PackingListScreen>
 
   late TabController _tabController;
 
+  // Owned by the screen (not the modal sheet) so it outlives the sheet's
+  // close + keyboard-dismiss animation, which can still rebuild the TextField.
+  // Disposing it with the sheet caused "TextEditingController used after
+  // disposed" and a cascading framework assertion.
+  final TextEditingController _itemNameController = TextEditingController();
+
   Trip? _trip;
   List<PackingItem> _myItems = [];
   List<PackingItem> _assignedByMe = [];
@@ -71,6 +78,7 @@ class _PackingListScreenState extends State<PackingListScreen>
   @override
   void dispose() {
     _tabController.dispose();
+    _itemNameController.dispose();
     _packingSubscription?.cancel();
     _packingListService.unsubscribeFromPackingItems(widget.tripId);
     super.dispose();
@@ -269,7 +277,8 @@ class _PackingListScreenState extends State<PackingListScreen>
     }
 
     final isEdit = item != null;
-    final nameController = TextEditingController(text: item?.name ?? '');
+    final nameController = _itemNameController;
+    nameController.text = item?.name ?? '';
     var category = item?.category ?? PackingCategory.other;
     var assigneeId =
         item?.assignedToUserId ?? _currentUserId ?? _members.first.userId;
@@ -416,8 +425,6 @@ class _PackingListScreenState extends State<PackingListScreen>
         ),
       ),
     );
-
-    nameController.dispose();
   }
 
   Future<void> _saveEditedItem({
@@ -469,10 +476,20 @@ class _PackingListScreenState extends State<PackingListScreen>
       );
       final itinerary = await _itineraryService.getItineraryItems(widget.tripId);
 
-      final destinationNames = destinations
-          .map((d) => d.destination?.name)
-          .whereType<String>()
-          .where((name) => name.isNotEmpty)
+      final destinationContexts = destinations
+          .map((d) => d.destination)
+          .whereType<Destination>()
+          .where((dest) => dest.name.isNotEmpty)
+          .map(
+            (dest) => PackingDestinationContext(
+              name: dest.name,
+              city: dest.city,
+              province: dest.province,
+              country: dest.country,
+              latitude: dest.latitude,
+              longitude: dest.longitude,
+            ),
+          )
           .toList();
 
       final existingNames = [
@@ -484,7 +501,7 @@ class _PackingListScreenState extends State<PackingListScreen>
         tripTitle: _trip!.title,
         startDate: _trip!.startDate,
         endDate: _trip!.endDate,
-        destinations: destinationNames,
+        destinations: destinationContexts,
         activityTitles: itinerary.map((item) => item.title).toList(),
         existingItemNames: existingNames,
       );

@@ -280,7 +280,7 @@
 - [x] Transport mode-aware itinerary generation (car/public transport/plane/mixed)
 - [x] Flight & hotel booking details in trip preferences
 - [ ] AI chat for travel tips
-- [ ] Smart packing list based on destination/weather
+- [x] Smart packing list based on destination/weather — season-aware via Claude (no external weather API)
 - [ ] Budget assistant (cost estimates, warnings)
 
 ---
@@ -358,7 +358,8 @@
 | 2026-05-18 | 3 | Personal packing + assignments: `assigned_to_user_id` / `assigned_by_user_id` (migration 019), per-user "My list" + "I assigned" tabs, assignee picker, RLS scoped to assignee or creator |
 | 2026-05-18 | 3 | Packing edit/delete: edit sheet (name, category, assignee), popup menu + swipe delete, delete from edit sheet |
 | 2026-05-18 | 3 | In-app notifications: `user_notifications` table, trigger on packing assignment, NotificationsScreen, realtime snackbar, unread badge on Profile |
+| 2026-06-02 | 3 | Weather-aware packing: `generate-packing-suggestions` now reasons about each destination's typical seasonal climate for the travel month(s) — season-aware via Claude, no external weather API. PackingListService sends structured destination context (city/province/country/lat-long) + derived travel months; PackingListScreen passes full destinations |
 
 ---
 
-*Last updated: May 18, 2026*
+*Last updated: June 2, 2026*
